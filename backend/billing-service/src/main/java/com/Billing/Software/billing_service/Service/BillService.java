@@ -491,6 +491,38 @@ public class BillService {
                 .toObjects(Bill.class);
     }
 
+    public List<Bill> getReminderNotifications() throws Exception {
+        List<Bill> allPaidBills = getAllBills();
+        long nowMillis = System.currentTimeMillis();
+        long dayMillis = 24 * 60 * 60 * 1000L;
+
+        return allPaidBills.stream().filter(bill -> {
+            try {
+                String method = bill.getPaymentMethod();
+                boolean isPartial = "PARTIAL".equalsIgnoreCase(method);
+                boolean isReminderEnabled = bill.isEnableExpiryReminder() 
+                        || (bill.getPaymentReminderEnabled() != null && bill.getPaymentReminderEnabled());
+                Integer reminderDays = bill.getExpiryDays() != null 
+                        ? bill.getExpiryDays() 
+                        : (bill.getPaymentReminderDays() != null ? bill.getPaymentReminderDays() : 30);
+                
+                boolean hasPendingAmount = (bill.getPendingAmount() != null && bill.getPendingAmount().compareTo(BigDecimal.ZERO) > 0)
+                        || (bill.getFinalAmount() != null && bill.getAmountPaid() != null && bill.getFinalAmount().subtract(bill.getAmountPaid()).compareTo(BigDecimal.ZERO) > 0);
+
+                if (isPartial && isReminderEnabled && reminderDays != null && reminderDays >= 0 && hasPendingAmount) {
+                    Date createdDate = bill.getCreatedAt();
+                    if (createdDate == null) return false;
+
+                    long reminderTime = createdDate.getTime() + (reminderDays.longValue() * dayMillis);
+                    return nowMillis >= reminderTime;
+                }
+            } catch (Exception e) {
+                return false;
+            }
+            return false;
+        }).collect(Collectors.toList());
+    }
+
     public List<Bill> getBillsByRange(Date start, Date end) throws Exception {
         return firestore.collection(COL).whereGreaterThanOrEqualTo("createdAt", start)
                 .whereLessThanOrEqualTo("createdAt", end).get().get().toObjects(Bill.class);

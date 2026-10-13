@@ -10,6 +10,7 @@ import com.Billing.Software.staff_service.Entity.Staff;
 import com.Billing.Software.staff_service.Service.StaffService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -25,19 +26,23 @@ public class StaffController {
 
     // --- ROLES ---
     @PostMapping("/roles")
+    @PreAuthorize("hasRole('ADMIN')")
     public String addRole(@RequestBody Role role) throws Exception { return service.addRole(role); }
 
     @GetMapping("/roles")
     public List<Role> getRoles() throws Exception { return service.getAllRoles(); }
 
     @PutMapping("/roles/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public void updateRole(@PathVariable String id, @RequestBody Role role) throws Exception { service.updateRole(id, role); }
 
     @DeleteMapping("/roles/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public void deleteRole(@PathVariable String id) throws Exception { service.deleteRole(id); }
 
     // --- STAFF ---
     @PostMapping("/add")
+    @PreAuthorize("hasRole('ADMIN')")
     public String addStaff(@RequestBody Staff staff) throws Exception { return service.addStaff(staff); }
 
     @GetMapping("/all")
@@ -47,9 +52,11 @@ public class StaffController {
     public Staff getById(@PathVariable String id) throws Exception { return service.getStaffById(id); }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public void update(@PathVariable String id, @RequestBody Map<String, Object> up) throws Exception { service.updateStaff(id, up); }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public void delete(@PathVariable String id) throws Exception { service.deleteStaff(id); }
 
     // --- ATTENDANCE ---
@@ -107,6 +114,7 @@ public class StaffController {
     }
 
     @PatchMapping("/commissions/{id}/pay")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> payCommission(@PathVariable String id) throws Exception {
         service.markCommissionAsPaid(id);
         return ResponseEntity.ok(Map.of("message", "Commission status updated to PAID"));
@@ -120,6 +128,7 @@ public class StaffController {
     }
 
     @PostMapping("/settings")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> saveAppSettings(@RequestBody AppSettings settings) throws Exception {
         service.saveAppSettings(settings);
         return ResponseEntity.ok(Map.of("message", "App settings saved successfully"));

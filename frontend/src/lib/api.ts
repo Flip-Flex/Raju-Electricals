@@ -170,7 +170,8 @@ export const staffApi = {
   getAllCommissions: (yearMonth?: string) => staffService.get<Commission[]>(`/staff/commissions/all${yearMonth ? `?yearMonth=${yearMonth}` : ''}`),
   getStaffCommissions: (staffId: string, yearMonth?: string) =>
     staffService.get<Commission[]>(`/staff/commissions/${staffId}${yearMonth ? `?yearMonth=${yearMonth}` : ''}`),
-  payCommission: (id: string) => staffService.patch(`/staff/commissions/${id}/pay`),
+  payCommission: (id: string, paymentMethod?: string) =>
+    staffService.patch(`/staff/commissions/${id}/pay${paymentMethod ? `?paymentMethod=${paymentMethod}` : ''}`),
 
   // Self Attendance (Cashier geo-mark)
   selfMarkAttendance: (data: { staffId: string; date: string; latitude: number; longitude: number }) =>
@@ -496,7 +497,7 @@ export interface Bill {
 }
 
 export const billingApi = {
-  getNotifications: () => billingService.get<Bill[]>('/billing/all').catch(() => ({ data: [] as Bill[] })), 
+  getNotifications: () => billingService.get<Bill[]>('/billing/notifications').catch(() => billingService.get<Bill[]>('/billing/all').catch(() => ({ data: [] as Bill[] }))), 
   create: (data: Bill) => billingService.post('/billing/create', data),
   update: (id: string, data: Partial<Bill>) => billingService.patch(`/billing/update/${id}`, data), // Added generic update
   hold: (data: Bill) => billingService.post('/billing/hold', data),

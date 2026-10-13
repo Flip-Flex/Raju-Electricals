@@ -132,7 +132,7 @@ const BillView = () => {
     const roundOff = finalAmount - totalTaxable;
     const amountInWords = numberToWords(finalAmount);
 
-    const gstNumber = "33JPNPK3337F1ZR"; // Hardcoded from Billing.tsx default
+    const gstNumber = APP_CONFIG.GSTIN || "33BJLPN3590D1Z7";
     const billDate = formatDate(bill.createdAt);
 
     return (

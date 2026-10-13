@@ -5,8 +5,11 @@ import { brokerApi, Broker, Commission } from '@/lib/api';
 import { SyncIndicator } from '@/components/SyncIndicator';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useGlobalData } from '@/context/GlobalDataContext';
+import { useAuth } from '@/context/AuthContext';
 
 const Brokers = () => {
+    const { user } = useAuth();
+    const isAdmin = user?.role?.toLowerCase() === 'admin';
     const { brokers, refreshBrokers, mutateBrokers, isSyncing: globalSyncing } = useGlobalData();
     const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null);
     const [commissions, setCommissions] = useState<Commission[]>([]);
@@ -78,6 +81,10 @@ const Brokers = () => {
     };
 
     const handleOpenModal = (broker?: Broker) => {
+        if (!isAdmin) {
+            toast.error("Only Admin can add or edit Sales Reps.");
+            return;
+        }
         if (broker) {
             setEditingId(broker.id);
             setFormData({
@@ -97,6 +104,10 @@ const Brokers = () => {
 
     const handleSaveBroker = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!isAdmin) {
+            toast.error("Only Admin can save Sales Reps.");
+            return;
+        }
         if (!formData.name || !formData.phone) {
             toast.error("Name and Phone are required.");
             return;
@@ -129,6 +140,10 @@ const Brokers = () => {
     };
 
     const handleMarkPaidClick = (commission: Commission) => {
+        if (!isAdmin) {
+            toast.error("Only Admin can settle commissions.");
+            return;
+        }
         confirmAction(
             `Are you sure you want to mark commission of ₹${commission.amount} as PAID?`,
             async () => {
@@ -148,6 +163,10 @@ const Brokers = () => {
 
     const handleDeleteClick = (id: string, e?: React.MouseEvent) => {
         e?.stopPropagation();
+        if (!isAdmin) {
+            toast.error("Only Admin can delete Sales Reps.");
+            return;
+        }
         confirmAction(
             "This action cannot be undone. All history will be lost.",
             async () => {
@@ -213,13 +232,15 @@ const Brokers = () => {
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-xl font-bold text-gray-800">Sales Rep</h2>
                         <SyncIndicator isSyncing={isSyncing} />
-                        <button
-                            onClick={() => handleOpenModal()}
-                            className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors"
-                            title="Add New Sales Rep"
-                        >
-                            <Plus size={20} />
-                        </button>
+                        {isAdmin && (
+                            <button
+                                onClick={() => handleOpenModal()}
+                                className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors"
+                                title="Add New Sales Rep"
+                            >
+                                <Plus size={20} />
+                            </button>
+                        )}
                     </div>
                     <div className="flex gap-2">
                         <div className="relative flex-grow">
@@ -268,22 +289,24 @@ const Brokers = () => {
                                     <div className="font-semibold text-gray-800">{el.name}</div>
                                     <div className="text-sm text-gray-500">{el.phone}</div>
                                 </div>
-                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleOpenModal(el); }}
-                                        className="text-blue-500 hover:text-blue-700 p-1"
-                                        title="Edit"
-                                    >
-                                        <Pencil size={16} />
-                                    </button>
-                                    <button
-                                        onClick={(e) => handleDeleteClick(el.id, e)}
-                                        className="text-red-400 hover:text-red-600 p-1"
-                                        title="Delete"
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
+                                {isAdmin && (
+                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleOpenModal(el); }}
+                                            className="text-blue-500 hover:text-blue-700 p-1"
+                                            title="Edit"
+                                        >
+                                            <Pencil size={16} />
+                                        </button>
+                                        <button
+                                            onClick={(e) => handleDeleteClick(el.id, e)}
+                                            className="text-red-400 hover:text-red-600 p-1"
+                                            title="Delete"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         ))
                     )}
@@ -302,13 +325,15 @@ const Brokers = () => {
                                     </h1>
                                     <div className="text-sm text-gray-500 mt-1">Sales Rep ID: <span className="font-mono">{selectedBroker.id}</span></div>
                                 </div>
-                                <button
-                                    onClick={() => handleOpenModal(selectedBroker)}
-                                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                    title="Edit Sales Rep Details"
-                                >
-                                    <Pencil size={20} />
-                                </button>
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => handleOpenModal(selectedBroker)}
+                                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="Edit Sales Rep Details"
+                                    >
+                                        <Pencil size={20} />
+                                    </button>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -412,13 +437,15 @@ const Brokers = () => {
                                                     <td className="p-4 text-sm font-bold text-right">₹{Number(comm.amount).toFixed(2)}</td>
                                                     <td className="p-4 text-center">
                                                         <button
-                                                            onClick={() => comm.status === 'UNPAID' && handleMarkPaidClick(comm)}
+                                                            onClick={() => isAdmin && comm.status === 'UNPAID' && handleMarkPaidClick(comm)}
                                                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${comm.status === 'PAID'
                                                                 ? 'bg-green-100 text-green-700'
-                                                                : 'bg-orange-100 text-orange-700 hover:bg-orange-200 cursor-pointer active:scale-95'
+                                                                : isAdmin
+                                                                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 cursor-pointer active:scale-95'
+                                                                    : 'bg-orange-100 text-orange-700 cursor-default opacity-80'
                                                                 }`}
-                                                            title={comm.status === 'UNPAID' ? "Click to Mark Paid" : ""}
-                                                            disabled={comm.status === 'PAID'}
+                                                            title={comm.status === 'UNPAID' ? (isAdmin ? "Click to Mark Paid" : "Only Admin can mark commission as paid") : ""}
+                                                            disabled={!isAdmin || comm.status === 'PAID'}
                                                         >
                                                             {comm.status === 'PAID' ? <CheckCircle size={12} /> : <Clock size={12} />}
                                                             {comm.status}

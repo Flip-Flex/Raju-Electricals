@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import { estimationApi, billingApi } from "@/lib/api";
 import { utils, writeFile } from "xlsx";
@@ -53,7 +53,8 @@ const EstimationList: React.FC = () => {
     }, []);
     useEffect(() => { refreshBills(); }, [refreshBills]);
     const [shopName] = useLocalStorage("shopName_v3", APP_CONFIG.COMPANY_NAME);
-    const [gstNumber] = useLocalStorage("gstNumber_v3", "");
+    const [gstNumberRaw] = useLocalStorage("gstNumber_v4", "33BJLPN3590D1Z7");
+    const gstNumber = !gstNumberRaw || gstNumberRaw === '33JPNPK3337F1ZR' ? '33BJLPN3590D1Z7' : gstNumberRaw;
 
     useEffect(() => {
         const fetchEstimations = async () => {
@@ -155,7 +156,7 @@ const EstimationList: React.FC = () => {
         const companyData = {
             name: "Raju Electricals",
             address: "No. 35, Malligai Street, Mullai Nagar, Orikkai, Kanchipuram - 631502",
-            gstin: gstNumber || "",
+            gstin: gstNumber || "33BJLPN3590D1Z7",
             email: "rajuelectricals@gmail.com",
             state: "Tamil Nadu"
         };
@@ -271,7 +272,7 @@ const EstimationList: React.FC = () => {
                                             company={{
                                                 name: "Raju Electricals",
                                                 address: "No. 35, Malligai Street, Mullai Nagar, Orikkai, Kanchipuram - 631502",
-                                                gstin: gstNumber || "",
+                                                gstin: gstNumber || "33BJLPN3590D1Z7",
                                                 email: "rajuelectricals@gmail.com",
                                                 state: "Tamil Nadu"
                                             }}

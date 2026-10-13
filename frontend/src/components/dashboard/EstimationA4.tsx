@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import paymentQR from "../../assets/payment-qr.jpeg";
 
 interface EstimationItem {
@@ -310,7 +310,7 @@ export const EstimationPrintA4: React.FC<EstimationPrintA4Props> = ({
                       <div className="company-name">Raju Electricals</div>
                       <div>No : 32 ,Ground Floor, Pattala Street, Kanchipuram - 631501</div>
                       <div>GPay No: 9626956999</div>
-                      <div>GSTIN/UIN: 33JPNPK3337F1ZR</div>
+                      <div>GSTIN/UIN: 33BJLPN3590D1Z7</div>
                       <div>State: Tamil Nadu,Code : 33</div>
                       <div>Email: rajuelectricals@gmail.com</div>
                     </td>

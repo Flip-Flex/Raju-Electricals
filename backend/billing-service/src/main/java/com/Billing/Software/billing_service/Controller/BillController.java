@@ -106,4 +106,10 @@ public class BillController {
             @RequestParam(required = false) Long phone) throws Exception {
         return ResponseEntity.ok(billService.getBillsByCustomerInfo(name, phone));
     }
+
+    @GetMapping("/notifications")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public List<Bill> getNotifications() throws Exception {
+        return billService.getReminderNotifications();
+    }
 }

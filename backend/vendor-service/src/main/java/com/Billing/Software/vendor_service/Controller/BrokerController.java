@@ -21,7 +21,7 @@ public class BrokerController {
     private final BrokerService brokerService;
 
     @PostMapping("/add")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> addBroker(@RequestBody Broker broker) throws Exception {
         String id = brokerService.addBroker(broker);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id, "message", "Broker added"));
@@ -35,7 +35,7 @@ public class BrokerController {
 
     // --- NEW: Update Broker ---
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> updateBroker(@PathVariable String id, @RequestBody Broker broker) throws Exception {
         brokerService.updateBroker(id, broker);
         return ResponseEntity.ok(Map.of("message", "Broker updated successfully"));
@@ -43,7 +43,7 @@ public class BrokerController {
 
     // --- NEW: Delete Broker ---
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> deleteBroker(@PathVariable String id) throws Exception {
         brokerService.deleteBroker(id);
         return ResponseEntity.ok(Map.of("message", "Broker deleted successfully"));
@@ -63,7 +63,7 @@ public class BrokerController {
     }
 
     @PatchMapping("/commissions/{id}/status")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> updateStatus(@PathVariable String id, @RequestBody Map<String, String> body) throws Exception {
         brokerService.updateCommissionStatus(id, body.get("status"));
         return ResponseEntity.ok(Map.of("message", "Status updated"));

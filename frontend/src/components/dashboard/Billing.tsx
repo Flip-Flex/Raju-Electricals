@@ -444,11 +444,11 @@ const Billing: React.FC = () => {
   const staffCommRef = useRef<HTMLInputElement>(null);
 
   const [shopName] = useLocalStorage('shopName_rose_boutique', 'Raju Electricals');
-  const [gstNumberRaw] = useLocalStorage('gstNumber_v2', '33JPNPK3337F1ZR');
+  const [gstNumberRaw] = useLocalStorage('gstNumber_v4', '33BJLPN3590D1Z7');
 
   const gstNumber =
-    !gstNumberRaw || gstNumberRaw === 'YOUR_GST_NUMBER_HERE'
-      ? '33JPNPK3337F1ZR'
+    !gstNumberRaw || gstNumberRaw === 'YOUR_GST_NUMBER_HERE' || gstNumberRaw === '33JPNPK3337F1ZR'
+      ? '33BJLPN3590D1Z7'
       : gstNumberRaw.toString().trim();
 
   const [billMessage] = useLocalStorage('billMessage', 'Thank You For Your Purchasing');
@@ -1263,7 +1263,7 @@ const Billing: React.FC = () => {
       address: "No:32,Ground Floor , pattala street, kanchipuram - 631501",
       phone: "9626956999",
       email: "rajuelectricals@gmail.com",
-      gstin: gstNumber || "33JPNPK3337F1ZR",
+      gstin: gstNumber || "33BJLPN3590D1Z7",
       pan: "FFFPS9148J",
       state: "Tamil Nadu",
       bankName: "Karur Vysya Bank",
@@ -1317,7 +1317,7 @@ const Billing: React.FC = () => {
     const companyData = {
       name: "Raju Electricals",
       address: "No. 35, Malligai Street, Mullai Nagar, Orikkai, Kanchipuram - 631502", // Hardcoded per legacy string
-      gstin: gstNumber || "",
+      gstin: gstNumber || "33BJLPN3590D1Z7",
       email: "rajuelectricals@gmail.com", // Example or from config? The original HTML didn't show email. Prompt requests Email in Left Header. I'll use a placeholder or check config.
       state: "Tamil Nadu"
     };
@@ -1410,7 +1410,7 @@ const Billing: React.FC = () => {
     const companyData = {
       name: "Raju Electricals",
       address: "No. 35, Malligai Street, Mullai Nagar, Orikkai, Kanchipuram - 631502",
-      gstin: gstNumber || "",
+      gstin: gstNumber || "33BJLPN3590D1Z7",
       email: "rajuelectricals@gmail.com",
       state: "Tamil Nadu"
     };
@@ -1498,7 +1498,7 @@ const Billing: React.FC = () => {
       address: "No:32,Ground Floor , pattala street, kanchipuram - 631501",
       phone: "9626956999",
       email: "rajuelectricals@gmail.com",
-      gstin: gstNumber || "33JPNPK3337F1ZR",
+      gstin: gstNumber || "33BJLPN3590D1Z7",
       pan: "FFFPS9148J",
       state: "Tamil Nadu",
       bankName: "Karur Vysya Bank",

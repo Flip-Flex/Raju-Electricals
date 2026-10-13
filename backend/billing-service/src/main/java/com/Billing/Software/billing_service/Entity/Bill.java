@@ -50,6 +50,7 @@ public class Bill {
     private BigDecimal totalGstAmount;
     private BigDecimal finalAmount;
     private BigDecimal amountPaid;
+    private BigDecimal pendingAmount;
 
     private String paymentMethod;
     private BigDecimal cashAmount;
@@ -57,6 +58,20 @@ public class Bill {
     private List<PaymentHistoryEntry> paymentHistory;
     private Date createdAt;
     private Date updatedAt;
+
+    // --- EXPIRY REMINDER FIELDS (MR-silks logic) ---
+    @com.google.cloud.firestore.annotation.PropertyName("enableExpiryReminder")
+    public boolean isEnableExpiryReminder() { return enableExpiryReminder; }
+    @com.google.cloud.firestore.annotation.PropertyName("enableExpiryReminder")
+    public void setEnableExpiryReminder(boolean enableExpiryReminder) { this.enableExpiryReminder = enableExpiryReminder; }
+
+    @com.google.cloud.firestore.annotation.PropertyName("expiryDays")
+    public Integer getExpiryDays() { return expiryDays; }
+    @com.google.cloud.firestore.annotation.PropertyName("expiryDays")
+    public void setExpiryDays(Integer expiryDays) { this.expiryDays = expiryDays; }
+
+    private boolean enableExpiryReminder;
+    private Integer expiryDays;
 
     // --- OPTIONAL REMINDER FIELDS ---
     private Boolean paymentReminderEnabled;

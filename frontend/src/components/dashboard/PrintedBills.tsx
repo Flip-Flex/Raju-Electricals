@@ -68,7 +68,8 @@ const PrintedBills: React.FC = () => {
   const { user, loading: authLoading } = useAuth();
 
   const [shopName] = useLocalStorage("shopName_v3", APP_CONFIG.COMPANY_NAME);
-  const [gstNumber] = useLocalStorage("gstNumber_v3", "");
+  const [gstNumberRaw] = useLocalStorage("gstNumber_v4", "33BJLPN3590D1Z7");
+  const gstNumber = !gstNumberRaw || gstNumberRaw === '33JPNPK3337F1ZR' ? '33BJLPN3590D1Z7' : gstNumberRaw;
   const { mutateProducts } = useGlobalData();
 
   // Payment Tracking State
@@ -309,7 +310,7 @@ const PrintedBills: React.FC = () => {
       address: "No:32,Ground Floor , pattala street, kanchipuram - 631501",
       phone: "9626956999",
       email: "rajuelectricals@gmail.com",
-      gstin: gstNumber || "33JPNPK3337F1ZR",
+      gstin: gstNumber || "33BJLPN3590D1Z7",
       pan: "FFFPS9148J",
       state: "Tamil Nadu",
       bankName: "Karur Vysya Bank",
@@ -564,7 +565,7 @@ const PrintedBills: React.FC = () => {
           <div className="flex items-center gap-2 bg-indigo-50 px-4 py-2 rounded-lg border border-indigo-100">
             <span className="text-gray-600 font-medium">Total:</span>
             <span className="text-lg font-bold text-indigo-700">
-              ?{Math.round(totalFilteredAmount).toLocaleString('en-IN')}
+              ₹{Math.round(totalFilteredAmount).toLocaleString('en-IN')}
             </span>
           </div>
         </div>
@@ -615,12 +616,12 @@ const PrintedBills: React.FC = () => {
                       <td className="p-4 text-center">
                         <span className="px-3 py-1 bg-gray-100 rounded-full font-bold">{bill.items.length}</span>
                       </td>
-                      <td className="p-4 text-right font-bold text-gray-900">?{bill.finalAmount.toFixed(2)}</td>
+                      <td className="p-4 text-right font-bold text-gray-900">₹{bill.finalAmount.toFixed(2)}</td>
                       
                       {viewMode === 'ESTIMATION' && (
                         <>
-                          <td className="p-4 text-right font-semibold text-green-600">?{(bill.paidAmount || 0).toLocaleString()}</td>
-                          <td className="p-4 text-right font-semibold text-red-600">?{(bill.finalAmount - (bill.paidAmount || 0)).toLocaleString()}</td>
+                          <td className="p-4 text-right font-semibold text-green-600">₹{(bill.paidAmount || 0).toLocaleString()}</td>
+                          <td className="p-4 text-right font-semibold text-red-600">₹{(bill.finalAmount - (bill.paidAmount || 0)).toLocaleString()}</td>
                           <td className="p-4 text-center">
                             <span 
                               onClick={() => {
@@ -699,18 +700,18 @@ const PrintedBills: React.FC = () => {
                 <CreditCard size={80} />
               </div>
               <h2 className="text-xl font-bold relative z-10 tracking-tight">Record Payment</h2>
-              <p className="text-blue-50 text-sm mt-1 relative z-10 opacity-90">{payModal.bill.customerName || 'Walk-in'} � {payModal.bill.invoiceId || payModal.bill.id}</p>
+              <p className="text-blue-50 text-sm mt-1 relative z-10 opacity-90">{payModal.bill.customerName || 'Walk-in'} � {payModal.bill.invoiceId || payModal.bill.id}</p>
             </div>
 
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-sm">
                   <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Amount</p>
-                  <p className="text-lg font-bold text-slate-800 font-mono">?{payModal.bill.finalAmount.toLocaleString()}</p>
+                  <p className="text-lg font-bold text-slate-800 font-mono">₹{payModal.bill.finalAmount.toLocaleString()}</p>
                 </div>
                 <div className="bg-rose-50 p-3 rounded-xl border border-rose-100 shadow-sm">
                   <p className="text-[10px] text-rose-500 uppercase font-bold tracking-wider">Outstanding</p>
-                  <p className="text-lg font-bold text-rose-700 font-mono">?{(payModal.bill.finalAmount - (payModal.bill.paidAmount || 0)).toLocaleString()}</p>
+                  <p className="text-lg font-bold text-rose-700 font-mono">₹{(payModal.bill.finalAmount - (payModal.bill.paidAmount || 0)).toLocaleString()}</p>
                 </div>
               </div>
 
@@ -799,7 +800,7 @@ const PrintedBills: React.FC = () => {
                   <span>Payment History</span>
                 </h2>
                 <p className="text-slate-500 text-sm mt-0.5 font-medium">
-                  {historyModal.bill.customerName || 'Walk-in'} <span className="mx-2 text-slate-300">�</span> Invoice: <span className="font-mono text-blue-600 font-bold">{historyModal.bill.invoiceId || historyModal.bill.id}</span>
+                  {historyModal.bill.customerName || 'Walk-in'} <span className="mx-2 text-slate-300">�</span> Invoice: <span className="font-mono text-blue-600 font-bold">{historyModal.bill.invoiceId || historyModal.bill.id}</span>
                 </p>
               </div>
               <button
@@ -815,19 +816,19 @@ const PrintedBills: React.FC = () => {
               <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
                 <p className="text-[10px] text-slate-500 uppercase font-extrabold tracking-widest mb-1">Total Bill</p>
                 <p className="text-xl font-black text-slate-800 font-mono">
-                  ?{historyModal.bill.finalAmount.toLocaleString()}
+                  ₹{historyModal.bill.finalAmount.toLocaleString()}
                 </p>
               </div>
               <div className="bg-green-50/50 p-4 rounded-xl border border-green-100 shadow-sm">
                 <p className="text-[10px] text-green-600 uppercase font-extrabold tracking-widest mb-1">Total Paid</p>
                 <p className="text-xl font-black text-green-600 font-mono">
-                  ?{(historyModal.bill.paidAmount || 0).toLocaleString()}
+                  ₹{(historyModal.bill.paidAmount || 0).toLocaleString()}
                 </p>
               </div>
               <div className="bg-rose-50/50 p-4 rounded-xl border border-rose-100 shadow-sm">
                 <p className="text-[10px] text-rose-600 uppercase font-extrabold tracking-widest mb-1">Outstanding</p>
                 <p className="text-xl font-black text-rose-600 font-mono">
-                  ?{(historyModal.bill.finalAmount - (historyModal.bill.paidAmount || 0)).toLocaleString()}
+                  ₹{(historyModal.bill.finalAmount - (historyModal.bill.paidAmount || 0)).toLocaleString()}
                 </p>
               </div>
             </div>
@@ -866,7 +867,7 @@ const PrintedBills: React.FC = () => {
                           })}
                         </td>
                         <td className="px-5 py-3 text-right font-bold text-green-600">
-                          ?{entry.amount.toLocaleString()}
+                          ₹{entry.amount.toLocaleString()}
                         </td>
                         <td className="px-5 py-4 text-center">
                           <span className="px-3 py-1 text-[10px] font-bold rounded-full border bg-gradient-to-r from-slate-50 to-slate-100 text-slate-700 border-slate-200 uppercase tracking-tighter">
@@ -874,10 +875,10 @@ const PrintedBills: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-5 py-3 text-right font-semibold text-gray-800">
-                          ?{entry.balanceAfterPayment.toLocaleString()}
+                          ₹{entry.balanceAfterPayment.toLocaleString()}
                         </td>
                         <td className="px-5 py-3 text-gray-600 text-xs">
-                          {entry.description || '�'}
+                          {entry.description || '�'}
                         </td>
                       </tr>
                     ))}
@@ -931,7 +932,7 @@ const PrintedBills: React.FC = () => {
                       address: "No:32,Ground Floor , pattala street, kanchipuram - 631501",
                       phone: "9626956999",
                       email: "rajuelectricals@gmail.com",
-                      gstin: gstNumber || "33JPNPK3337F1ZR",
+                      gstin: gstNumber || "33BJLPN3590D1Z7",
                       pan: "FFFPS9148J",
                       state: "Tamil Nadu",
                       bankName: "Karur Vysya Bank",
@@ -992,7 +993,7 @@ const PrintedBills: React.FC = () => {
                         address: "No:32,Ground Floor , pattala street, kanchipuram - 631501",
                         phone: "9626956999",
                         email: "rajuelectricals@gmail.com",
-                        gstin: gstNumber || "33JPNPK3337F1ZR",
+                        gstin: gstNumber || "33BJLPN3590D1Z7",
                         pan: "FFFPS9148J",
                         state: "Tamil Nadu",
                         bankName: "Karur Vysya Bank",
@@ -1022,7 +1023,7 @@ const PrintedBills: React.FC = () => {
                         address: "No:32,Ground Floor , pattala street, kanchipuram - 631501",
                         phone: "9626956999",
                         email: "rajuelectricals@gmail.com",
-                        gstin: gstNumber || "33JPNPK3337F1ZR",
+                        gstin: gstNumber || "33BJLPN3590D1Z7",
                         state: "Tamil Nadu"
                       }}
                       estimation={{ id: bill.invoiceId || bill.id, date: new Date(bill.createdAt).toLocaleDateString('en-GB') }}

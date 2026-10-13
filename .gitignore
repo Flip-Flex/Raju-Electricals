@@ -16,3 +16,14 @@ coverage/
 *.key
 
 serviceAccountKey.json
+
+# Local JDK and Android artifacts
+**/jdk*/
+**/jdk*.zip
+*.zip
+*_log.txt
+*_output.txt
+deploy.txt
+lint_results*.txt
+
+

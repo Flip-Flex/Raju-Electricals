@@ -265,7 +265,6 @@ public class DayBookService {
             QuerySnapshot expensesQuery = firestore.collection(ENTRY_COL)
                     .whereGreaterThanOrEqualTo("date", start)
                     .whereLessThanOrEqualTo("date", endQuery)
-                    .whereEqualTo("type", "EXPENSE")
                     .get().get();
 
             Map<String, Map<String, Double>> dailyData = new TreeMap<>();
@@ -307,10 +306,16 @@ public class DayBookService {
             // Process Expenses
             for (QueryDocumentSnapshot doc : expensesQuery) {
                 DayBookEntry entry = doc.toObject(DayBookEntry.class);
-                totalExpense += entry.getAmount();
-                String day = sdf.format(entry.getDate());
-                dailyData.putIfAbsent(day, new HashMap<>());
-                dailyData.get(day).put("expense", dailyData.get(day).getOrDefault("expense", 0.0) + entry.getAmount());
+                if ("EXPENSE".equalsIgnoreCase(entry.getType())) {
+                    totalExpense += entry.getAmount();
+                    String day = sdf.format(entry.getDate());
+                    dailyData.putIfAbsent(day, new HashMap<>());
+                    dailyData.get(day).put("expense", dailyData.get(day).getOrDefault("expense", 0.0) + entry.getAmount());
+                } else if ("INCOME".equalsIgnoreCase(entry.getType())) {
+                    // Manual Income entries logic if required in chart Data
+                    // We add it to 'cash' or other based on method, but usually just 'cash' or 'income'
+                    // For now, only handle EXPENSE as before to avoid double counting if not expected.
+                }
             }
 
             List<Map<String, Object>> chartData = new ArrayList<>();

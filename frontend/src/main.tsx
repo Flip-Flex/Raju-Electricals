@@ -20,6 +20,17 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Clean up legacy GST localStorage entries
+try {
+  ['gstNumber', 'gstNumber_v2', 'gstNumber_v3'].forEach(k => localStorage.removeItem(k));
+  const v4 = localStorage.getItem('gstNumber_v4');
+  if (v4 && (v4.includes('33JPNPK3337F1ZR') || v4.includes('YOUR_GST_NUMBER_HERE'))) {
+    localStorage.removeItem('gstNumber_v4');
+  }
+} catch (e) {
+  // ignore
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />

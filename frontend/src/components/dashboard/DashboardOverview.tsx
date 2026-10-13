@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   TrendingUp, TrendingDown, DollarSign, ShoppingCart,
-  Package, AlertTriangle, Download, Users, Check, X, Pencil
+  Package, AlertTriangle, Download, Users, Check, X, Pencil,
+  UserCheck, Award, Briefcase, Phone, FileText, Search, Filter, Sparkles, ChevronRight, Eye, User, Trophy, Percent, Wallet
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -12,7 +13,7 @@ import {
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, startOfYear, endOfMonth, endOfYear, addDays } from 'date-fns';
-import { billingApi, productApi, daybookApi, Bill, Product, Vendor, DayBookEntry } from '@/lib/api';
+import { billingApi, productApi, daybookApi, Bill, Product, Vendor, DayBookEntry, Staff } from '@/lib/api';
 import { useGlobalData } from '@/context/GlobalDataContext';
 import LowStockProductsModal from './LowStockProductsModal';
 
@@ -20,7 +21,7 @@ type DashboardPeriod = 'day' | 'week' | 'month' | 'year';
 
 const DashboardOverview = () => {
   const { toast } = useToast();
-  const { bills, products = [], vendors = [], refreshProducts } = useGlobalData() as any;
+  const { bills = [], products = [], vendors = [], staff = [], refreshProducts } = useGlobalData() as any;
     const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -29,13 +30,13 @@ const DashboardOverview = () => {
 
   // Raw data
   const [expenses, setExpenses] = useState<DayBookEntry[]>([]);
+  const [totalExpenseAmount, setTotalExpenseAmount] = useState<number>(0);
     const [chartDataFetched, setChartDataFetched] = useState<any[]>([]);
   
-  // UI state
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<{ purchaseRate: number, sellingPrice: number }>({ purchaseRate: 0, sellingPrice: 0 });
-  const [selectedProductDetails, setSelectedProductDetails] = useState<any | null>(null);
-  const [priceMarginSearch, setPriceMarginSearch] = useState("");
+  // Staff Performance UI state
+  const [selectedStaffDetails, setSelectedStaffDetails] = useState<any | null>(null);
+  const [staffSearch, setStaffSearch] = useState("");
+  const [selectedStaffRole, setSelectedStaffRole] = useState("ALL");
 
   const getDateRange = (view: DashboardPeriod) => {
     const now = new Date();
@@ -53,43 +54,6 @@ const DashboardOverview = () => {
     return { start: startOfYear(now), end: endOfYear(now) };
   };
 
-  const handleEditClick = (product: Product) => {
-    setEditingProductId(product.id || null);
-    setEditValues({
-      purchaseRate: product.purchaseRate || 0,
-      sellingPrice: product.sellingPrice || 0
-    });
-  };
-
-  const handleSaveEdit = async (productId: string) => {
-    if (editValues.purchaseRate <= 0) {
-      toast({ title: 'Invalid Input', description: 'Buying price must be greater than 0', variant: 'destructive' });
-      return;
-    }
-    if (editValues.sellingPrice < editValues.purchaseRate) {
-      toast({ title: 'Invalid Input', description: 'Selling price must be greater than or equal to buying price', variant: 'destructive' });
-      return;
-    }
-
-    try {
-      await productApi.update(productId, {
-        purchaseRate: editValues.purchaseRate,
-        sellingPrice: editValues.sellingPrice
-      });
-
-      // Refresh products from context
-      await refreshProducts();
-
-      setEditingProductId(null);
-      toast({ title: 'Success', description: 'Pricing updated successfully' });
-    } catch (error) {
-      toast({ title: 'Error', description: 'Failed to update pricing', variant: 'destructive' });
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setEditingProductId(null);
-  };
 
 
   useEffect(() => {
@@ -200,6 +164,11 @@ const filteredProducts = products;
         const res = await daybookApi.getRange(startDate, endDate);
         const rawData = res.data?.chartData || res.data?.dailyBreakdown || [];
 
+        const totalExp = res.data?.totalExpense !== undefined 
+          ? res.data.totalExpense 
+          : rawData.reduce((sum: number, d: any) => sum + (d.expense || 0), 0);
+        setTotalExpenseAmount(totalExp);
+
         const start = startOfDay(new Date(startDate));
 
         const dayData = aggregateChartData('day', rawData, start);
@@ -257,8 +226,8 @@ const filteredProducts = products;
     return {
       totalRevenue: rev,
       totalTransactions: filteredBills.length,
-      totalProfit: profit,
-      totalCOGS: cogs
+      totalProfit: Math.abs(profit) < 0.01 ? 0 : profit,
+      totalCOGS: Math.abs(cogs) < 0.01 ? 0 : cogs
     };
   }, [filteredBills, filteredProducts]);
 
@@ -276,121 +245,152 @@ const filteredProducts = products;
     return { upi, cash, card, split, partial };
   }, [filteredBills]);
 
-  // Product Analysis (Best Sellers & Pricing Insights)
-  const productPerformance = useMemo(() => {
-    const perf: Record<string, {
-      id: string,
-      name: string,
-      qtySold: number,
-      revenue: number,
-      category: string,
-      margin: number,
-      purchaseRate: number,
-      sellingPrice: number,
-      vendorName: string,
-      vendorId: string,
-      weaverName: string,
-      weaverId: string,
-      stock: number,
-      purchaseDate?: string,
-      hashtagNumber?: string
-    }> = {};
+  // Staff Performance Analytics
+  const staffPerformance = useMemo(() => {
+    const staffMap = new Map<string, any>();
 
-    const combinedProducts = products;
-    const productMap = new Map<string, any>(combinedProducts.map(p => [p.id, p] as [string, any]));
-    const productNameMap = new Map<string, any>(combinedProducts.map(p => [p.name, p] as [string, any]));
-    const productBarcodeMap = new Map<string, any>(
-      combinedProducts
-        .filter(p => p.barcode)
-        .map(p => [p.barcode, p] as [string, any])
-    );
-
-    filteredBills.forEach(bill => {
-      bill.items?.forEach(item => {
-        const prod = productMap.get(item.productId) || productNameMap.get(item.productName) || productBarcodeMap.get(item.productId);
-        const pid = prod ? prod.id : item.productName;
-
-        if (!perf[pid]) {
-          const pr = prod?.purchaseRate || (item.unitPrice * 0.7);
-          const sp = prod?.sellingPrice || item.unitPrice;
-          perf[pid] = {
-            id: prod?.id || 'N/A',
-            name: item.productName,
-            qtySold: 0,
-            revenue: 0,
-            category: prod?.category || 'General',
-            purchaseRate: pr,
-            sellingPrice: sp,
-            margin: sp > 0 ? ((sp - pr) / sp) * 100 : 0,
-            vendorName: prod?.vendorName || 'N/A',
-            vendorId: prod?.vendorId || 'N/A',
-            weaverName: (prod as any)?.weaverName || (prod as any)?.vendorName || 'N/A',
-            weaverId: (prod as any)?.weaverId || (prod as any)?.vendorId || 'N/A',
-            stock: prod?.stockQuantity || 0,
-            purchaseDate: prod?.purchaseDate || prod?.createdAt || '',
-            hashtagNumber: prod?.hashtagNumber || prod?.id || ''
-          };
-        }
-        perf[pid].qtySold += item.quantity;
-        perf[pid].revenue += (item.unitPrice * item.quantity);
+    // 1. Pre-populate strictly with all registered staff from database
+    (staff || []).forEach((s: any) => {
+      const id = s.id || '';
+      if (!id) return;
+      staffMap.set(id, {
+        id,
+        name: s.name || s.id,
+        role: s.role || 'Staff Member',
+        phone: s.phone || 'N/A',
+        profilePicUrl: s.profilePicUrl,
+        active: s.active ?? s.isActive ?? true,
+        baseSalary: s.baseSalary || 0,
+        invoicesCount: 0,
+        itemsSold: 0,
+        totalRevenue: 0,
+        totalCommission: 0,
+        paidCommission: 0,
+        unpaidCommission: 0,
+        avgBillValue: 0,
+        bills: []
       });
     });
 
-    return Object.values(perf).sort((a, b) => b.qtySold - a.qtySold);
-  }, [filteredBills, products]);
+    // 2. Iterate filteredBills and attribute strictly to registered staff
+    filteredBills.forEach((bill: any) => {
+      if (bill.status === 'CANCELLED' || bill.status === 'HOLD') return;
 
-  const topSellingProducts = useMemo(() => {
-    return productPerformance.map(p => ({
-      ...p,
-      totalQty: (p.qtySold || 0) + (p.stock || 0),
-      chartLabel: `${p.name} (${p.weaverName && p.weaverName !== 'N/A' ? p.weaverName : p.vendorName})`
-    })).sort((a, b) => b.qtySold - a.qtySold);
-  }, [productPerformance]);
+      const staffId = bill.staffId;
+      if (!staffId) return;
 
-  const topPerformingByRevenue = useMemo(() => {
-    return [...topSellingProducts].sort((a, b) => b.revenue - a.revenue);
-  }, [topSellingProducts]);
+      const entry = staffMap.get(staffId);
+      if (!entry) return;
 
-  const topPerformingByMargin = useMemo(() => {
-    return [...topSellingProducts].sort((a, b) => b.margin - a.margin);
-  }, [topSellingProducts]);
+      const billRev = bill.finalAmount || bill.amountPaid || 0;
+      const units = bill.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
 
-  const [bottomTableSearch, setBottomTableSearch] = useState("");
+      // Commission calculation: direct staffCommissionAmount or from percentage
+      let commAmt = 0;
+      if (bill.staffCommissionAmount !== undefined && bill.staffCommissionAmount !== null && Number(bill.staffCommissionAmount) > 0) {
+        commAmt = Number(bill.staffCommissionAmount);
+      } else if (bill.staffCommissionPercentage !== undefined && bill.staffCommissionPercentage !== null && Number(bill.staffCommissionPercentage) > 0) {
+        commAmt = (billRev * Number(bill.staffCommissionPercentage)) / 100;
+      }
 
-  const productPurchases = useMemo(() => {
-    if (!selectedProductDetails) return [];
-
-    return bills.filter(bill => {
-      if (bill.status === 'CANCELLED') return false;
-      return bill.items?.some(item =>
-        item.productId === selectedProductDetails.id ||
-        item.productName === selectedProductDetails.name
-      );
-    }).map(bill => {
-      const item = bill.items?.find(i =>
-        i.productId === selectedProductDetails.id ||
-        i.productName === selectedProductDetails.name
-      );
-      return {
-        customerName: bill.customerName,
-        customerPhone: bill.customerPhone,
-        quantity: item?.quantity || 1,
-        date: bill.createdAt,
-        total: (item?.unitPrice || 0) * (item?.quantity || 1)
-      };
+      entry.invoicesCount += 1;
+      entry.itemsSold += units;
+      entry.totalRevenue += billRev;
+      entry.totalCommission += commAmt;
+      if (bill.staffCommissionStatus === 'PAID') {
+        entry.paidCommission += commAmt;
+      } else {
+        entry.unpaidCommission += commAmt;
+      }
+      entry.bills.push(bill);
     });
-  }, [selectedProductDetails, bills]);
 
+    // 3. Compute average bill value & sort by revenue
+    const list = Array.from(staffMap.values()).map(item => ({
+      ...item,
+      avgBillValue: item.invoicesCount > 0 ? item.totalRevenue / item.invoicesCount : 0
+    }));
+
+    return list.sort((a, b) => b.totalRevenue - a.totalRevenue || b.invoicesCount - a.invoicesCount);
+  }, [staff, filteredBills]);
+
+  const top5Staff = useMemo(() => {
+    return staffPerformance
+      .filter(s => s.invoicesCount > 0 || s.totalRevenue > 0)
+      .slice(0, 5);
+  }, [staffPerformance]);
+
+  const staffChartData = useMemo(() => {
+    return staffPerformance
+      .filter(s => s.invoicesCount > 0 || s.totalRevenue > 0)
+      .slice(0, 8)
+      .map(s => ({
+        name: s.name,
+        revenue: Math.round(s.totalRevenue),
+        invoices: s.invoicesCount,
+        commission: Math.round(s.totalCommission),
+        itemsSold: s.itemsSold,
+        role: s.role,
+        id: s.id
+      }));
+  }, [staffPerformance]);
+
+  const availableStaffRoles = useMemo(() => {
+    const roles = new Set<string>();
+    staffPerformance.forEach(s => {
+      if (s.role) roles.add(s.role);
+    });
+    return Array.from(roles);
+  }, [staffPerformance]);
+
+  const filteredStaffList = useMemo(() => {
+    return staffPerformance.filter(s => {
+      const q = staffSearch.toLowerCase();
+      const matchesSearch =
+        s.name.toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q) ||
+        s.phone.toLowerCase().includes(q) ||
+        s.role.toLowerCase().includes(q);
+      const matchesRole = selectedStaffRole === 'ALL' || s.role === selectedStaffRole;
+      return matchesSearch && matchesRole;
+    });
+  }, [staffPerformance, staffSearch, selectedStaffRole]);
+
+  const totalStaffRevenue = useMemo(() => {
+    return staffPerformance.reduce((acc, s) => acc + s.totalRevenue, 0);
+  }, [staffPerformance]);
+
+  const totalStaffCommissions = useMemo(() => {
+    return staffPerformance.reduce((acc, s) => acc + s.totalCommission, 0);
+  }, [staffPerformance]);
+
+  const activeStaffCount = useMemo(() => {
+    return staffPerformance.filter(s => s.invoicesCount > 0).length;
+  }, [staffPerformance]);
+
+  // Keep lowStockProducts independent of productPerformance
   const lowStockProducts = useMemo(() => {
-    return productPerformance.filter(p => (p.stock || 0) <= 5);
-  }, [productPerformance]);
+    return (products || []).filter((p: any) => {
+      const stock = p.stockQuantity ?? p.stock ?? 0;
+      return Number(stock) <= 5;
+    }).map((p: any) => ({
+      id: p.id || '',
+      name: p.name || 'Unnamed',
+      category: p.category || 'N/A',
+      vendorName: p.vendorName || p.weaverName || 'N/A',
+      vendorId: p.vendorId || p.weaverId || 'N/A',
+      purchaseRate: p.purchaseRate || 0,
+      sellingPrice: p.sellingPrice || 0,
+      stock: p.stockQuantity ?? p.stock ?? 0,
+      purchaseDate: p.purchaseDate || p.createdAt || '',
+      qtySold: 0
+    }));
+  }, [products]);
 
 
-
-  const totalExpenseAmount = useMemo(() => expenses.reduce((sum, e) => sum + (e.amount || 0), 0), [expenses]);
 
   // Helper to calculate pie data
-  const getPieDataForRange = (start: Date, end: Date) => {
+  const getPieDataForRange = (start: Date, end: Date, overrideExpense?: number) => {
     let revenue = 0;
     let cogs = 0;
 
@@ -420,7 +420,7 @@ const filteredProducts = products;
     });
 
     const profit = revenue - cogs;
-    const expenseAmount = filteredRangeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const expenseAmount = overrideExpense !== undefined ? overrideExpense : filteredRangeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
 
     return [
       { name: 'Revenue', value: revenue, color: '#3b82f6' },
@@ -431,8 +431,8 @@ const filteredProducts = products;
   };
 
   const pieData = useMemo(() => {
-    return getPieDataForRange(startOfDay(new Date(startDate)), endOfDay(new Date(endDate)));
-  }, [bills, expenses, products, startDate, endDate]);
+    return getPieDataForRange(startOfDay(new Date(startDate)), endOfDay(new Date(endDate)), totalExpenseAmount);
+  }, [bills, expenses, products, startDate, endDate, totalExpenseAmount]);
 
   const allPieData = useMemo(() => {
     const now = new Date();
@@ -501,25 +501,27 @@ const filteredProducts = products;
       { label: 'Low Stock Count', value: lowStockProducts.length }
     ];
 
-    // Top 5 Products with full data
-    const topProducts = topSellingProducts.slice(0, 5).map((p, i) => ({
+    // Top 5 Staff for report
+    const topStaffReport = staffPerformance
+      .filter(s => s.invoicesCount > 0 || s.totalRevenue > 0)
+      .slice(0, 5)
+      .map((s, i) => ({
       rank: i + 1,
-      date: p.purchaseDate ? format(new Date(p.purchaseDate), 'dd MMM yyyy') : 'N/A',
-      productId: p.id || 'N/A',
-      name: p.name,
-      category: p.category || 'N/A',
-      supplierId: (p.weaverId && p.weaverId !== 'N/A' ? p.weaverId : p.vendorId) || 'N/A',
-      supplierInfo: (p.weaverName && p.weaverName !== 'N/A' ? p.weaverName : p.vendorName) || 'N/A',
-      purchasePrice: `₹${p.purchaseRate.toLocaleString()}`,
-      sellingPrice: `₹${p.sellingPrice.toLocaleString()}`,
-      qtySold: p.qtySold,
-      stock: p.stock
+      staffId: s.id,
+      name: s.name,
+      role: s.role,
+      phone: s.phone,
+      invoices: s.invoicesCount,
+      unitsSold: s.itemsSold,
+      revenue: `₹${s.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+      commission: `₹${s.totalCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+      avgBill: `₹${s.avgBillValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
     }));
 
-    return { reportKpis, topProducts };
+    return { reportKpis, topStaffReport };
   };
 
-  const { reportKpis, topProducts } = getReportData();
+  const { reportKpis, topStaffReport } = getReportData();
 
   if (loading && totalRevenue === 0) {
     return (
@@ -645,7 +647,7 @@ const filteredProducts = products;
 
       {/* Time Range Toggle Row */}
       <div className="flex justify-end mb-4">
-        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm gap-1">
           {(['day', 'week', 'month', 'year'] as const).map(view => (
             <button
               key={view}
@@ -673,10 +675,10 @@ const filteredProducts = products;
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartDataFetched} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} dy={10} angle={-45} textAnchor="end" height={60} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={(v) => `₹${v / 1000}k`} dx={-10} />
                   <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                  <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+                  <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} verticalAlign="top" />
                   <Bar dataKey="income" name="Earnings" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
                   <Bar dataKey="expense" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
                 </BarChart>
@@ -692,7 +694,7 @@ const filteredProducts = products;
               <span className="text-[10px] font-black text-blue-600 px-2 py-1 bg-white rounded shadow-sm">SYNCED VIEW</span>
             </div>
           </div>
-          <div className="h-[250px] flex-1">
+          <div className="h-[300px] flex-1">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={pieData} innerRadius={65} outerRadius={85} paddingAngle={4} dataKey="value" stroke="none">
@@ -701,113 +703,159 @@ const filteredProducts = products;
                   ))}
                 </Pie>
                 <RechartsTooltip formatter={(value) => `₹${Number(value).toLocaleString()}`} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 10px rgb(0 0 0 / 0.1)' }} />
-                <Legend verticalAlign="bottom" height={40} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                <Legend verticalAlign="bottom" height={40} iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
               </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
 
-      {/* Analytics Row */}
+      {/* Staff Performance Leaderboard */}
       <div className="grid grid-cols-1 gap-6">
 
-        {/* Top 5 Performing Products Table */}
+        {/* Top Performing Staff Table */}
         <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-              <TrendingUp size={20} className="text-emerald-500" />
-              Top 5 Performing Products
-            </h3>
-            <span className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full border border-amber-200 shadow-sm">
-              Based on Quantity Sold
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6">
+            <div>
+              <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                <Award size={22} className="text-amber-500" />
+                Top Performing Staff Leaderboard
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                Staff ranked by sales revenue and bills handled in selected period
+              </p>
+            </div>
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 shadow-sm flex items-center gap-1.5">
+              <Trophy size={14} className="text-amber-500" />
+              Top Sales Champions
             </span>
           </div>
 
-          <div className="overflow-x-auto max-h-[400px] custom-scrollbar">
+          <div className="overflow-x-auto max-h-[420px] custom-scrollbar">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-white shadow-sm z-10">
                 <tr className="text-[10px] text-slate-400 uppercase tracking-widest border-b border-slate-100 bg-slate-50">
                   <th className="p-3 font-bold text-center">Rank</th>
-                  <th className="p-3 font-bold whitespace-nowrap">Date</th>
-                  <th className="p-3 font-bold">Product ID</th>
-                  <th className="p-3 font-bold">Product Name</th>
-                  <th className="p-3 font-bold">Category</th>
-                  <th className="p-3 font-bold">Supplier ID</th>
-                  <th className="p-3 font-bold">Supplier Info</th>
-                  <th className="p-3 font-bold whitespace-nowrap">Purchase Price</th>
-                  <th className="p-3 font-bold whitespace-nowrap">Selling Price</th>
-                  <th className="p-3 font-bold text-center">Qty Sold</th>
-                  <th className="p-3 font-bold text-center">Stock</th>
+                  <th className="p-3 font-bold">Staff Member</th>
+                  <th className="p-3 font-bold">Role</th>
+                  <th className="p-3 font-bold">Contact</th>
+                  <th className="p-3 font-bold text-center">Invoices Handled</th>
+                  <th className="p-3 font-bold text-center">Units Sold</th>
+                  <th className="p-3 font-bold whitespace-nowrap">Sales Revenue</th>
+                  <th className="p-3 font-bold whitespace-nowrap">Commission</th>
+                  <th className="p-3 font-bold whitespace-nowrap">Avg Invoice</th>
+                  <th className="p-3 font-bold text-center">Revenue Share</th>
+                  <th className="p-3 font-bold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {topSellingProducts.slice(0, 5).map((p, i) => {
+                {top5Staff.map((s, i) => {
                   let badge = "";
-                  if (i === 0) badge = "🥇 #1";
-                  else if (i === 1) badge = "🥈 #2";
-                  else if (i === 2) badge = "🥉 #3";
+                  if (i === 0) badge = "🥇 Rank 1";
+                  else if (i === 1) badge = "🥈 Rank 2";
+                  else if (i === 2) badge = "🥉 Rank 3";
                   else badge = `#${i + 1}`;
 
                   let badgeClasses = "inline-flex items-center justify-center font-black px-2.5 py-1 rounded-full shadow-sm text-xs whitespace-nowrap border ";
-                  if (i === 0) badgeClasses += "bg-yellow-100 text-yellow-800 border-yellow-300";
+                  if (i === 0) badgeClasses += "bg-amber-100 text-amber-900 border-amber-300";
                   else if (i === 1) badgeClasses += "bg-slate-200 text-slate-800 border-slate-300";
-                  else if (i === 2) badgeClasses += "bg-amber-100 text-amber-800 border-amber-300";
-                  else badgeClasses += "bg-slate-50 text-slate-500 border-slate-200";
+                  else if (i === 2) badgeClasses += "bg-orange-100 text-orange-900 border-orange-300";
+                  else badgeClasses += "bg-slate-50 text-slate-600 border-slate-200";
 
                   const isTop3 = i < 3;
+                  const sharePct = totalStaffRevenue > 0 ? (s.totalRevenue / totalStaffRevenue) * 100 : 0;
 
                   return (
-                    <tr key={i} className={`group transition-colors ${isTop3 ? 'bg-amber-50/20 hover:bg-amber-50/60' : 'hover:bg-slate-50/50'}`}>
+                    <tr
+                      key={s.id || i}
+                      onClick={() => setSelectedStaffDetails(s)}
+                      className={`group cursor-pointer transition-colors ${isTop3 ? 'bg-amber-50/20 hover:bg-amber-50/60' : 'hover:bg-slate-50/50'}`}
+                    >
                       <td className="p-3 text-center">
-                        <span className={badgeClasses} title={`Rank ${i + 1} Top Seller`}>{badge}</span>
+                        <span className={badgeClasses} title={`Rank ${i + 1}`}>
+                          {badge}
+                        </span>
                       </td>
-                      <td className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">
-                        {(() => {
-                          try {
-                            return p.purchaseDate && !isNaN(new Date(p.purchaseDate).getTime())
-                              ? format(new Date(p.purchaseDate), 'dd MMM yyyy')
-                              : 'N/A';
-                          } catch (e) { return 'N/A'; }
-                        })()}
+                      <td className="p-3 min-w-[180px]">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 text-white font-bold flex items-center justify-center text-xs shadow-sm flex-shrink-0 overflow-hidden">
+                            {s.profilePicUrl ? (
+                              <img src={s.profilePicUrl} alt={s.name} className="w-full h-full object-cover" />
+                            ) : (
+                              s.name.slice(0, 2).toUpperCase()
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-black text-slate-800 text-sm leading-tight group-hover:text-blue-600 transition-colors">
+                              {s.name}
+                            </p>
+                            <p className="text-[10px] font-mono font-bold text-slate-400 mt-0.5">
+                              ID: {s.id}
+                            </p>
+                          </div>
+                        </div>
                       </td>
-                      <td className="p-3 text-[11px] font-mono font-bold text-slate-400 uppercase tracking-tight">
-                        {p.id || 'N/A'}
+                      <td className="p-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                          {s.role}
+                        </span>
                       </td>
-                      <td className="p-3 min-w-[140px]">
-                        <p className="font-black text-slate-800 text-sm leading-tight group-hover:text-amber-700 transition-colors">{p.name}</p>
-                      </td>
-                      <td className="p-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        {p.category || 'N/A'}
-                      </td>
-                      <td className="p-3 text-[11px] font-mono font-bold text-slate-400">
-                        {(p.weaverId && p.weaverId !== 'N/A' ? p.weaverId : p.vendorId) || 'N/A'}
-                      </td>
-                      <td className="p-3 min-w-[140px]">
-                        <p className="text-xs font-bold text-slate-700 leading-tight">
-                          {(p.weaverName && p.weaverName !== 'N/A' ? p.weaverName : p.vendorName) || 'N/A'}
-                        </p>
-                      </td>
-                      <td className="p-3 text-xs font-bold text-slate-600 whitespace-nowrap">
-                        ₹{p.purchaseRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-xs font-bold text-slate-600 whitespace-nowrap">
-                        ₹{p.sellingPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100/50 block mx-auto w-fit">
-                          {p.qtySold}
+                      <td className="p-3 text-xs font-bold text-slate-500 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1">
+                          <Phone size={12} className="text-slate-400" />
+                          {s.phone}
                         </span>
                       </td>
                       <td className="p-3 text-center">
-                        <span className={`text-xs font-black px-2 py-1 rounded-md flex items-center justify-center gap-1 mx-auto w-fit ${p.stock <= 5 ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-slate-50 text-slate-600 border border-slate-200'}`}>
-                          {p.stock <= 5 && <AlertTriangle size={12} className="text-red-500" />} {p.stock}
+                        <span className="text-xs font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100/60 inline-block">
+                          {s.invoicesCount} Bills
                         </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg inline-block">
+                          {s.itemsSold}
+                        </span>
+                      </td>
+                      <td className="p-3 text-sm font-black text-slate-900 whitespace-nowrap">
+                        ₹{s.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="p-3 text-xs font-bold whitespace-nowrap">
+                        <span className="inline-flex items-center px-2 py-1 rounded-lg text-emerald-700 bg-emerald-50 border border-emerald-200 font-bold">
+                          ₹{s.totalCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                      </td>
+                      <td className="p-3 text-xs font-bold text-slate-600 whitespace-nowrap">
+                        ₹{s.avgBillValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="p-3 min-w-[120px]">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="bg-blue-600 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.max(0, sharePct))}%` }}
+                            />
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-600">{sharePct.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => setSelectedStaffDetails(s)}
+                          className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors inline-flex items-center gap-1"
+                        >
+                          <Eye size={13} />
+                          Details
+                        </button>
                       </td>
                     </tr>
-                  )
+                  );
                 })}
-                {topSellingProducts.length === 0 && (
-                  <tr><td colSpan={12} className="p-6 text-center text-slate-400 font-medium">No sales data available</td></tr>
+                {top5Staff.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="p-8 text-center text-slate-400 font-medium">
+                      No staff performance data recorded for this period
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -816,159 +864,242 @@ const filteredProducts = products;
 
       </div>
 
-      {/* View Product Modal */}
-      {selectedProductDetails && (
+      {/* Staff Performance Details Modal */}
+      {selectedStaffDetails && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
           >
-            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <div>
-                <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
-                  <Package className="text-blue-600" size={28} />
-                  Product Sales Intelligence
-                </h2>
-                <p className="text-slate-500 font-bold text-sm mt-1">
-                  Showing customers who purchased <span className="text-blue-600">"{selectedProductDetails.name}"</span>
-                </p>
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/70">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-black flex items-center justify-center text-xl shadow-md overflow-hidden">
+                  {selectedStaffDetails.profilePicUrl ? (
+                    <img src={selectedStaffDetails.profilePicUrl} alt={selectedStaffDetails.name} className="w-full h-full object-cover" />
+                  ) : (
+                    selectedStaffDetails.name.slice(0, 2).toUpperCase()
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-2xl font-black text-slate-900">{selectedStaffDetails.name}</h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                      {selectedStaffDetails.role}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs font-bold text-slate-500 mt-1">
+                    <span className="font-mono text-slate-400">ID: {selectedStaffDetails.id}</span>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <Phone size={12} /> {selectedStaffDetails.phone}
+                    </span>
+                    {selectedStaffDetails.baseSalary > 0 && (
+                      <>
+                        <span>•</span>
+                        <span>Base Salary: ₹{selectedStaffDetails.baseSalary.toLocaleString()}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
               <button
-                onClick={() => setSelectedProductDetails(null)}
+                onClick={() => setSelectedStaffDetails(null)}
                 className="w-10 h-10 flex items-center justify-center bg-white border border-slate-200 rounded-full text-slate-400 hover:text-rose-500 hover:border-rose-100 transition-all hover:rotate-90"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <div className="bg-blue-600 p-4 rounded-2xl text-white">
-                  <p className="text-[10px] uppercase font-black opacity-80">Product ID</p>
-                  <p className="text-lg font-mono font-black truncate">{selectedProductDetails.id}</p>
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Metric Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-100">
+                  <p className="text-[10px] uppercase font-black text-blue-600">Total Sales Revenue</p>
+                  <p className="text-xl font-black text-slate-900 mt-1">
+                    ₹{selectedStaffDetails.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </p>
                 </div>
-                <div className="bg-slate-100 p-4 rounded-2xl border border-slate-200">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                  <p className="text-[10px] uppercase font-black text-slate-400">Invoices Handled</p>
+                  <p className="text-xl font-black text-slate-800 mt-1">{selectedStaffDetails.invoicesCount}</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
                   <p className="text-[10px] uppercase font-black text-slate-400">Total Units Sold</p>
-                  <p className="text-xl font-black text-slate-800">{selectedProductDetails.qtySold}</p>
+                  <p className="text-xl font-black text-slate-800 mt-1">{selectedStaffDetails.itemsSold}</p>
                 </div>
-                <div className="bg-slate-100 p-4 rounded-2xl border border-slate-200">
-                  <p className="text-[10px] uppercase font-black text-slate-400">Total Revenue</p>
-                  <p className="text-xl font-black text-slate-800">₹{selectedProductDetails.revenue.toLocaleString()}</p>
-                </div>
-                <div className="bg-slate-100 p-4 rounded-2xl border border-slate-200">
-                  <p className="text-[10px] uppercase font-black text-slate-400">Remaining Stock</p>
-                  <p className={`text-xl font-black ${selectedProductDetails.stock <= 5 ? 'text-rose-600' : 'text-slate-800'}`}>{selectedProductDetails.stock}</p>
+                <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-100">
+                  <p className="text-[10px] uppercase font-black text-emerald-600">Total Commission</p>
+                  <p className="text-xl font-black text-emerald-700 mt-1">
+                    ₹{selectedStaffDetails.totalCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
+                    Paid: ₹{selectedStaffDetails.paidCommission.toLocaleString()} | Unpaid: ₹{selectedStaffDetails.unpaidCommission.toLocaleString()}
+                  </p>
                 </div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
-                <div className="p-5 bg-slate-50 border-b border-slate-200">
-                  <h3 className="font-black text-slate-800 flex items-center gap-2">
-                    <Users size={18} className="text-blue-500" />
-                    Purchasing Customers
+              {/* Bills Handled by this Staff */}
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+                    <FileText size={16} className="text-blue-500" />
+                    Invoices Handled ({selectedStaffDetails.bills?.length || 0})
                   </h3>
+                  <span className="text-xs font-bold text-slate-500">
+                    Period: {format(new Date(startDate), 'dd MMM')} - {format(new Date(endDate), 'dd MMM yyyy')}
+                  </span>
                 </div>
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-white text-[10px] text-slate-400 uppercase font-bold tracking-widest border-b border-slate-100">
-                      <th className="p-4">Customer Details</th>
-                      <th className="p-4">Purchase Qty</th>
-                      <th className="p-4">Purchase Date</th>
-                      <th className="p-4 text-right">Total Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50 font-medium">
-                    {productPurchases.map((hist: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
-                        <td className="p-4">
-                          <p className="font-bold text-slate-800">{hist.customerName}</p>
-                          <p className="text-[10px] text-slate-400">PH: {hist.customerPhone}</p>
-                        </td>
-                        <td className="p-4">
-                          <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-black">{hist.quantity} Units</span>
-                        </td>
-                        <td className="p-4 text-slate-500 text-xs font-bold">
-                          {format(new Date(hist.date), 'dd MMM yyyy')}
-                        </td>
-                        <td className="p-4 text-right font-black text-slate-800">
-                          ₹{hist.total.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                    {productPurchases.length === 0 && (
+                <div className="max-h-[340px] overflow-y-auto custom-scrollbar">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="sticky top-0 bg-white shadow-sm z-10 text-[10px] text-slate-400 uppercase tracking-widest border-b border-slate-100">
                       <tr>
-                        <td colSpan={4} className="p-10 text-center text-slate-400 font-bold italic">No purchase history found for this product</td>
+                        <th className="p-3">Invoice #</th>
+                        <th className="p-3">Date</th>
+                        <th className="p-3">Customer</th>
+                        <th className="p-3">Items</th>
+                        <th className="p-3">Payment</th>
+                        <th className="p-3 text-right">Amount</th>
+                        <th className="p-3 text-right">Commission</th>
+                        <th className="p-3 text-center">Status</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {selectedStaffDetails.bills?.map((b: any, idx: number) => {
+                        const billTotal = b.finalAmount || b.amountPaid || 0;
+                        let comm = 0;
+                        if (b.staffCommissionAmount !== undefined && b.staffCommissionAmount !== null && Number(b.staffCommissionAmount) > 0) {
+                          comm = Number(b.staffCommissionAmount);
+                        } else if (b.staffCommissionPercentage) {
+                          comm = (billTotal * b.staffCommissionPercentage) / 100;
+                        }
+
+                        return (
+                          <tr key={b.id || idx} className="hover:bg-blue-50/20 transition-colors">
+                            <td className="p-3 font-mono font-bold text-blue-600">
+                              {b.invoiceNumber || b.invoiceId || b.id?.slice(-8) || `BILL-${idx + 1}`}
+                            </td>
+                            <td className="p-3 text-slate-500 whitespace-nowrap">
+                              {b.createdAt ? format(new Date(b.createdAt), 'dd MMM yyyy, hh:mm a') : 'N/A'}
+                            </td>
+                            <td className="p-3 font-bold text-slate-800">
+                              <div>{b.customerName || 'Walk-in Customer'}</div>
+                              {b.customerPhone && <div className="text-[10px] text-slate-400 font-normal">PH: {b.customerPhone}</div>}
+                            </td>
+                            <td className="p-3">
+                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-bold">
+                                {b.items?.length || 0} items
+                              </span>
+                            </td>
+                            <td className="p-3 text-slate-600 font-bold uppercase text-[11px]">
+                              {b.paymentMethod || 'Cash'}
+                            </td>
+                            <td className="p-3 text-right font-black text-slate-900">
+                              ₹{billTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="p-3 text-right font-bold text-emerald-600">
+                              ₹{comm.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="p-3 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                b.status === 'PAID' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {b.status || 'PAID'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {(!selectedStaffDetails.bills || selectedStaffDetails.bills.length === 0) && (
+                        <tr>
+                          <td colSpan={8} className="p-8 text-center text-slate-400 font-bold italic">
+                            No bills found for this staff member in this date range
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
-            <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
               <button
-                onClick={() => setSelectedProductDetails(null)}
-                className="px-6 py-2.5 bg-slate-800 text-white rounded-xl font-black text-sm hover:bg-slate-900 transition"
+                onClick={() => setSelectedStaffDetails(null)}
+                className="px-6 py-2 bg-slate-800 text-white rounded-xl font-bold text-xs hover:bg-slate-900 transition"
               >
-                CLOSE DETAILS
+                Close Details
               </button>
             </div>
           </motion.div>
         </div>
       )}
 
-      {/* Pricing Insights */}
+      {/* Staff Performance & Sales Comparison Chart */}
       <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-        <h3 className="font-bold text-slate-800 mb-6 text-lg">Best Selling Products UI (Pricing)</h3>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
+          <div>
+            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+              <TrendingUp size={20} className="text-blue-500" />
+              Staff Sales & Performance Comparison
+            </h3>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              Comparative visualization of sales revenue, invoices completed, and commission earned
+            </p>
+          </div>
+          <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-200">
+            Top 8 Contributors
+          </span>
+        </div>
+
         <div className="h-[360px]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={topSellingProducts} layout="horizontal" margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+            <BarChart data={staffChartData} layout="horizontal" margin={{ top: 10, right: 10, left: 10, bottom: 25 }}>
               <defs>
-                <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#64748b" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#94a3b8" stopOpacity={0.8} />
+                <linearGradient id="colorStaffRev" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.9} />
+                  <stop offset="95%" stopColor="#1d4ed8" stopOpacity={0.9} />
                 </linearGradient>
-                <linearGradient id="colorSold" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="colorStaffComm" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#10b981" stopOpacity={0.9} />
-                  <stop offset="95%" stopColor="#34d399" stopOpacity={0.9} />
+                  <stop offset="95%" stopColor="#059669" stopOpacity={0.9} />
                 </linearGradient>
-                <linearGradient id="colorRemain" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.9} />
-                  <stop offset="95%" stopColor="#fb923c" stopOpacity={0.9} />
+                <linearGradient id="colorStaffInvoices" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.9} />
+                  <stop offset="95%" stopColor="#d97706" stopOpacity={0.9} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="chartLabel" axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 13, fontWeight: 600 }} dy={15} width={80} interval={0} angle={-15} textAnchor="end" />
-              <YAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dx={-5} />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 12, fontWeight: 600 }} dy={12} interval={0} angle={-15} textAnchor="end" />
+              <YAxis yAxisId="left" orientation="left" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={(v) => `₹${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
+              <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fill: '#f59e0b', fontSize: 11 }} tickFormatter={(v) => `${v} bills`} />
               <RechartsTooltip
                 cursor={{ fill: '#f8fafc' }}
-                content={({ active, payload, label }) => {
+                content={({ active, payload }) => {
                   if (active && payload && payload.length) {
                     const data = payload[0].payload;
                     return (
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xl min-w-[240px]">
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xl min-w-[220px]">
                         <p className="font-bold text-slate-800 mb-2 border-b border-slate-100 pb-2 flex items-center justify-between">
-                          <span className="line-clamp-1 text-sm">{data.chartLabel}</span>
-                          <span className="text-[9px] font-mono text-slate-400 ml-2">#{data.hashtagNumber || data.id?.slice(-6) || 'N/A'}</span>
+                          <span className="text-sm">{data.name}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-bold">{data.role}</span>
                         </p>
-                        <div className="space-y-2 text-xs">
-                          <div className="pt-2">
-                            <p className="text-[10px] uppercase font-black text-slate-400 mb-2 tracking-wider">Inventory Insight</p>
-                            <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-center">
-                                <div className="text-slate-400 font-bold uppercase mb-0.5 text-[9px]">Total Qty</div>
-                                <div className="font-black text-slate-700">{data.totalQty}</div>
-                              </div>
-                              <div className="bg-emerald-50 p-2 rounded-lg border border-emerald-100 flex flex-col justify-center">
-                                <div className="text-emerald-600 font-bold uppercase mb-0.5 text-[9px]">Qty Sold</div>
-                                <div className="font-black text-emerald-700">{data.qtySold}</div>
-                              </div>
-                              <div className={`p-2 rounded-lg border flex flex-col justify-center ${data.stock <= 5 ? 'bg-rose-50 border-rose-100' : 'bg-orange-50 border-orange-100'}`}>
-                                <div className={`${data.stock <= 5 ? 'text-rose-500' : 'text-orange-600'} font-bold uppercase mb-0.5 text-[9px]`}>Remaining</div>
-                                <div className={`font-black ${data.stock <= 5 ? 'text-rose-600' : 'text-orange-700'}`}>{data.stock}</div>
-                              </div>
-                            </div>
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex justify-between items-center text-slate-600">
+                            <span>Sales Revenue:</span>
+                            <span className="font-black text-blue-600">₹{data.revenue.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-slate-600">
+                            <span>Invoices Handled:</span>
+                            <span className="font-black text-amber-600">{data.invoices} bills</span>
+                          </div>
+                          <div className="flex justify-between items-center text-slate-600">
+                            <span>Units Sold:</span>
+                            <span className="font-bold text-slate-800">{data.itemsSold} items</span>
+                          </div>
+                          <div className="flex justify-between items-center text-slate-600 pt-1 border-t border-slate-100">
+                            <span>Commission:</span>
+                            <span className="font-black text-emerald-600">₹{data.commission.toLocaleString()}</span>
                           </div>
                         </div>
                       </div>
@@ -977,232 +1108,193 @@ const filteredProducts = products;
                   return null;
                 }}
               />
-              <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '13px', fontWeight: 600 }} />
-
-              {/* Thin, rounded bars with spacing */}
-              <Bar
-                dataKey="totalQty"
-                name="Total Quantity"
-                fill="url(#colorTotal)"
-                radius={[4, 4, 0, 0]}
-                barSize={16}
-              />
-              <Bar
-                dataKey="qtySold"
-                name="Quantity Sold"
-                fill="url(#colorSold)"
-                radius={[4, 4, 0, 0]}
-                barSize={16}
-              />
-              <Bar
-                dataKey="stock"
-                name="Remaining Stock"
-                fill="url(#colorRemain)"
-                radius={[4, 4, 0, 0]}
-                barSize={16}
-              />
+              <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '12px', fontWeight: 600 }} />
+              <Bar yAxisId="left" dataKey="revenue" name="Sales Revenue (₹)" fill="url(#colorStaffRev)" radius={[4, 4, 0, 0]} barSize={18} />
+              <Bar yAxisId="left" dataKey="commission" name="Commission (₹)" fill="url(#colorStaffComm)" radius={[4, 4, 0, 0]} barSize={18} />
+              <Bar yAxisId="right" dataKey="invoices" name="Invoices Handled" fill="url(#colorStaffInvoices)" radius={[4, 4, 0, 0]} barSize={18} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Pricing Insights & Margins Row */}
+      {/* Staff Performance & Sales Ledger Row */}
       <div className="pb-6">
         <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm font-sans">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
-              <DollarSign size={20} className="text-blue-500" /> Pricing Insights & Margins
-            </h3>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search Product Name..."
-                value={bottomTableSearch}
-                onChange={(e) => setBottomTableSearch(e.target.value)}
-                className="pl-3 pr-8 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none w-48 font-medium"
-              />
-              <Package size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+            <div>
+              <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
+                <UserCheck size={22} className="text-indigo-600" />
+                Staff Sales & Performance Ledger
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                Comprehensive directory with invoices, revenue contributions, and commissions
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+              {/* Role filter */}
+              <div className="relative">
+                <select
+                  value={selectedStaffRole}
+                  onChange={(e) => setSelectedStaffRole(e.target.value)}
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="ALL">All Roles ({staffPerformance.length})</option>
+                  {availableStaffRoles.map(role => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Search input */}
+              <div className="relative flex-1 sm:w-64">
+                <input
+                  type="text"
+                  placeholder="Search staff by name, ID, phone..."
+                  value={staffSearch}
+                  onChange={(e) => setStaffSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none font-medium"
+                />
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              </div>
             </div>
           </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+              <p className="text-[10px] uppercase font-bold text-slate-400">Total Staff</p>
+              <p className="text-lg font-black text-slate-800 mt-0.5">{staffPerformance.length}</p>
+            </div>
+            <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/60">
+              <p className="text-[10px] uppercase font-bold text-blue-600">Active Sellers</p>
+              <p className="text-lg font-black text-blue-700 mt-0.5">{activeStaffCount}</p>
+            </div>
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+              <p className="text-[10px] uppercase font-bold text-slate-400">Attributed Sales</p>
+              <p className="text-lg font-black text-slate-800 mt-0.5">₹{totalStaffRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            </div>
+            <div className="bg-emerald-50/50 p-3 rounded-lg border border-emerald-100/60">
+              <p className="text-[10px] uppercase font-bold text-emerald-600">Total Commissions</p>
+              <p className="text-lg font-black text-emerald-700 mt-0.5">₹{totalStaffCommissions.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            </div>
+          </div>
+
+          {/* Full Ledger Table */}
           <div className="max-h-[500px] overflow-auto custom-scrollbar border border-slate-200 rounded-lg">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-slate-100 shadow-sm z-10">
                 <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-200">
-                  <th className="p-4 text-center">Rank</th>
-                  <th className="p-4 whitespace-nowrap">Date</th>
-                  <th className="p-4">Product ID</th>
-                  <th className="p-4">Product Name</th>
-                  <th className="p-4">Category</th>
-                  <th className="p-4">Supplier ID</th>
-                  <th className="p-4">Supplier Info</th>
-                  <th className="p-4 whitespace-nowrap">Buying Price (₹)</th>
-                  <th className="p-4 whitespace-nowrap">Selling Price (₹)</th>
-                  <th className="p-4 whitespace-nowrap">Margin (₹)</th>
-                  <th className="p-4">Margin (%)</th>
-                  <th className="p-4 text-right">Actions</th>
+                  <th className="p-3.5 text-center">Rank</th>
+                  <th className="p-3.5">Staff Details</th>
+                  <th className="p-3.5">Role</th>
+                  <th className="p-3.5">Contact</th>
+                  <th className="p-3.5 text-center">Invoices</th>
+                  <th className="p-3.5 text-center">Units Sold</th>
+                  <th className="p-3.5 whitespace-nowrap">Total Sales (₹)</th>
+                  <th className="p-3.5 whitespace-nowrap">Avg Sale (₹)</th>
+                  <th className="p-3.5 whitespace-nowrap">Commission (₹)</th>
+                  <th className="p-3.5">Status</th>
+                  <th className="p-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredProducts.filter(p => {
-                  if (!bottomTableSearch) return true;
-                  const search = bottomTableSearch.toLowerCase();
-                  return p.name.toLowerCase().includes(search);
-                }).map(p => {
-                  const isEditing = editingProductId === p.id;
-                  const buy = isEditing ? editValues.purchaseRate : (p.purchaseRate || 0);
-                  const sell = isEditing ? editValues.sellingPrice : (p.sellingPrice || 0);
-                  const marginAmt = sell - buy;
-                  const marginPct = buy > 0 ? (marginAmt / buy) * 100 : 0;
-                  const isProfitable = marginAmt >= 0;
-
-                  const topRankIndex = topSellingProducts.findIndex(tp => tp.id === p.id);
-                  const isTop5 = topRankIndex !== -1 && topRankIndex < 5;
-
+                {filteredStaffList.map((s, idx) => {
+                  const isTop3 = idx < 3 && s.totalRevenue > 0;
                   return (
                     <tr
-                      key={p.id}
-                      className={`transition-colors group cursor-pointer ${isEditing ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}
-                      onClick={() => {
-                        if (!isEditing && p.id) {
-                          handleEditClick(p);
-                        }
-                      }}
+                      key={s.id || idx}
+                      onClick={() => setSelectedStaffDetails(s)}
+                      className={`transition-colors group cursor-pointer ${isTop3 ? 'bg-amber-50/20 hover:bg-amber-50/50' : 'hover:bg-slate-50'}`}
                     >
-                      <td className="p-4 text-center">
-                        {isTop5 ? (
-                          <span className={`inline-flex items-center justify-center font-black px-2.5 py-1 rounded-full shadow-sm text-[10px] whitespace-nowrap border ${topRankIndex === 0 ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
-                              topRankIndex === 1 ? 'bg-slate-200 text-slate-800 border-slate-300' :
-                                topRankIndex === 2 ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                                  'bg-blue-50 text-blue-600 border-blue-200'
-                            }`}>
-                            {topRankIndex === 0 ? '🥇 #1' : topRankIndex === 1 ? '🥈 #2' : topRankIndex === 2 ? '🥉 #3' : `#${topRankIndex + 1}`}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-bold text-slate-400">#{topRankIndex + 1 > 0 ? topRankIndex + 1 : '-'}</span>
-                        )}
+                      <td className="p-3.5 text-center">
+                        <span className={`inline-flex items-center justify-center font-black px-2.5 py-0.5 rounded-full text-[10px] border ${
+                          idx === 0 && s.totalRevenue > 0 ? 'bg-amber-100 text-amber-900 border-amber-300' :
+                          idx === 1 && s.totalRevenue > 0 ? 'bg-slate-200 text-slate-800 border-slate-300' :
+                          idx === 2 && s.totalRevenue > 0 ? 'bg-orange-100 text-orange-900 border-orange-300' :
+                          'bg-slate-50 text-slate-500 border-slate-200'
+                        }`}>
+                          #{idx + 1}
+                        </span>
                       </td>
-                      <td className="p-4 text-[11px] font-bold text-slate-500 whitespace-nowrap">
-                        {(() => {
-                          try {
-                            const dateVal = p.purchaseDate || p.createdAt;
-                            return dateVal && !isNaN(new Date(dateVal).getTime())
-                              ? format(new Date(dateVal), 'dd MMM yyyy')
-                              : 'N/A';
-                          } catch (e) { return 'N/A'; }
-                        })()}
-                      </td>
-                      <td className="p-4 text-[11px] font-mono font-bold text-slate-400 uppercase tracking-tight">
-                        {p.id || 'N/A'}
-                      </td>
-                      <td className="p-4 font-medium text-slate-800">
-                        <div className="flex flex-col items-start gap-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-black text-slate-800">{p.name}</span>
-                            {isEditing && <span className="px-1.5 py-0.5 text-[9px] uppercase font-black text-blue-600 bg-blue-100 rounded-md animate-pulse">EDITING</span>}
+                      <td className="p-3.5 min-w-[170px]">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 font-bold flex items-center justify-center text-xs flex-shrink-0 overflow-hidden">
+                            {s.profilePicUrl ? (
+                              <img src={s.profilePicUrl} alt={s.name} className="w-full h-full object-cover" />
+                            ) : (
+                              s.name.slice(0, 2).toUpperCase()
+                            )}
                           </div>
-                          {isTop5 && (
-                            <span className="text-[9px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-sm">
-                              ⭐ TOP SELLER
-                            </span>
-                          )}
+                          <div>
+                            <p className="text-sm font-black text-slate-800 group-hover:text-blue-600 transition-colors">
+                              {s.name}
+                            </p>
+                            <p className="text-[10px] font-mono text-slate-400 font-bold">
+                              ID: {s.id}
+                            </p>
+                          </div>
                         </div>
                       </td>
-                      <td className="p-4 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                        {p.category || 'N/A'}
-                      </td>
-                      <td className="p-4 text-[11px] font-mono font-bold text-slate-400">
-                        {(p.weaverId && p.weaverId !== 'N/A' ? p.weaverId : p.vendorId) || 'N/A'}
-                      </td>
-                      <td className="p-4 min-w-[120px]">
-                        <p className="text-[11px] font-bold text-slate-700 leading-tight">
-                          {(p.weaverName && p.weaverName !== 'N/A' ? p.weaverName : p.vendorName) || 'N/A'}
-                        </p>
-                      </td>
-                      <td className="p-4" onClick={(e) => isEditing && e.stopPropagation()}>
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            autoFocus
-                            className="w-24 px-2 py-1 border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
-                            value={editValues.purchaseRate === 0 ? '' : editValues.purchaseRate}
-                            onChange={e => setEditValues(prev => ({ ...prev, purchaseRate: parseFloat(e.target.value) || 0 }))}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' && p.id) {
-                                e.preventDefault();
-                                handleSaveEdit(p.id);
-                              } else if (e.key === 'Escape') {
-                                handleCancelEdit();
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span className="text-xs font-bold text-slate-600">₹{buy.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        )}
-                      </td>
-                      <td className="p-4" onClick={(e) => isEditing && e.stopPropagation()}>
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            className="w-24 px-2 py-1 border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
-                            value={editValues.sellingPrice === 0 ? '' : editValues.sellingPrice}
-                            onChange={e => setEditValues(prev => ({ ...prev, sellingPrice: parseFloat(e.target.value) || 0 }))}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' && p.id) {
-                                e.preventDefault();
-                                handleSaveEdit(p.id);
-                              } else if (e.key === 'Escape') {
-                                handleCancelEdit();
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span className="text-xs font-bold text-slate-600">₹{sell.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        )}
-                      </td>
-                      <td className="p-4 font-bold">
-                        <span className={`text-xs ${isProfitable ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {isProfitable ? '+' : ''}₹{marginAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      <td className="p-3.5 text-xs font-bold text-slate-600">
+                        <span className="inline-block px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-[11px]">
+                          {s.role}
                         </span>
                       </td>
-                      <td className="p-4">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black ${isProfitable ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                          {isProfitable ? '+' : ''}{(marginPct || 0).toFixed(1)}%
+                      <td className="p-3.5 text-xs font-bold text-slate-500 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1">
+                          <Phone size={12} className="text-slate-400" />
+                          {s.phone}
                         </span>
                       </td>
-                      <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        {isEditing ? (
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); if (p.id) handleSaveEdit(p.id); }}
-                              className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-colors"
-                              title="Save (Enter)"
-                            >
-                              <Check size={16} strokeWidth={3} />
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleCancelEdit(); }}
-                              className="p-1.5 text-rose-500 bg-rose-50 hover:bg-rose-100 rounded-md transition-colors"
-                              title="Cancel (Esc)"
-                            >
-                              <X size={16} strokeWidth={3} />
-                            </button>
+                      <td className="p-3.5 text-center">
+                        <span className="text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
+                          {s.invoicesCount}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-center text-xs font-bold text-slate-700">
+                        {s.itemsSold}
+                      </td>
+                      <td className="p-3.5 font-black text-slate-900 text-xs whitespace-nowrap">
+                        ₹{s.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="p-3.5 text-xs font-bold text-slate-600 whitespace-nowrap">
+                        ₹{s.avgBillValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="p-3.5 text-xs font-bold whitespace-nowrap">
+                        <span className="text-emerald-600 font-bold">
+                          ₹{s.totalCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                        {s.totalCommission > 0 && (
+                          <div className="text-[9px] text-slate-400 font-medium">
+                            Paid: ₹{s.paidCommission.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </div>
-                        ) : (
-                          <button
-                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md opacity-0 group-hover:opacity-100 transition-all"
-                            title="Edit Pricing"
-                            onClick={(e) => { e.stopPropagation(); if (p.id) handleEditClick(p); }}
-                          >
-                            <Pencil size={16} />
-                          </button>
                         )}
+                      </td>
+                      <td className="p-3.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          s.active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                        }`}>
+                          {s.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-right" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => setSelectedStaffDetails(s)}
+                          className="px-2.5 py-1 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors inline-flex items-center gap-1"
+                        >
+                          <Eye size={13} />
+                          Details
+                        </button>
                       </td>
                     </tr>
                   );
                 })}
-                {products.length === 0 && (
+                {filteredStaffList.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="p-8 text-center text-slate-500">No product data available</td>
+                    <td colSpan={11} className="p-8 text-center text-slate-400 font-medium">
+                      No staff members match the selected filters
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -1267,59 +1359,61 @@ const filteredProducts = products;
           </div>
         ))}
 
-        {/* Best Selling Products Graph (Pricing) */}
+        {/* Staff Performance Overview Graph */}
         <div style={{ marginBottom: '40px', breakBefore: 'page', paddingTop: '20px' }}>
           <h2 style={{ fontSize: '22px', fontWeight: 'bold', marginBottom: '20px', borderLeft: '4px solid #6366f1', paddingLeft: '15px', color: '#1e293b' }}>
-            Best Selling Products UI (Pricing)
+            Staff Performance Overview (Revenue & Commission)
           </h2>
           <div style={{ border: '1px solid #f1f5f9', borderRadius: '12px', padding: '20px', backgroundColor: '#fff' }}>
-            <BarChart width={900} height={350} data={topSellingProducts.slice(0, 8)} margin={{ top: 10, right: 10, left: 10, bottom: 60 }}>
+            <BarChart width={900} height={350} data={staffChartData.slice(0, 8)} margin={{ top: 10, right: 10, left: 10, bottom: 60 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="chartLabel" interval={0} angle={-20} textAnchor="end" tick={{fontSize: 10, fontWeight: 600}} dy={15} />
+              <XAxis dataKey="name" interval={0} angle={-20} textAnchor="end" tick={{fontSize: 10, fontWeight: 600}} dy={15} />
               <YAxis tick={{fontSize: 10}} />
-              <Bar dataKey="totalQty" name="Total Quantity" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="qtySold" name="Quantity Sold" fill="#10b981" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="stock" name="Remaining Stock" fill="#f97316" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="revenue" name="Sales Revenue (₹)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="commission" name="Commission (₹)" fill="#10b981" radius={[4, 4, 0, 0]} />
               <Legend verticalAlign="top" align="right" wrapperStyle={{paddingBottom: '20px', fontSize: '12px'}} />
             </BarChart>
           </div>
         </div>
 
-        {/* Top Performing Products */}
+        {/* Top Performing Staff */}
         <div style={{ marginBottom: '40px', breakBefore: 'page' }}>
-          <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '20px', borderLeft: '4px solid #10b981', paddingLeft: '15px' }}>Top 5 Performing Products</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '20px', borderLeft: '4px solid #10b981', paddingLeft: '15px' }}>Top Performing Staff</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
             <thead style={{ backgroundColor: '#f8fafc', textAlign: 'left', fontSize: '10px', textTransform: 'uppercase' }}>
               <tr>
                 <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Rank</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Date</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Product ID</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Product Name</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Category</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Supplier ID</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Supplier Info</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Purchase Price</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Selling Price</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Qty Sold</th>
-                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Stock</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Staff ID</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Staff Name</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Role</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Phone</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', textAlign: 'center' }}>Invoices</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', textAlign: 'center' }}>Units Sold</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Total Sales (₹)</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Commission (₹)</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Avg Invoice (₹)</th>
               </tr>
             </thead>
             <tbody style={{ fontSize: '10px' }}>
-              {topProducts.map((p, i) => (
+              {topStaffReport.map((s, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '10px' }}>{p.rank}</td>
-                  <td style={{ padding: '10px' }}>{p.date}</td>
-                  <td style={{ padding: '10px', fontFamily: 'monospace' }}>{p.productId}</td>
-                  <td style={{ padding: '10px', fontWeight: 'bold' }}>{p.name}</td>
-                  <td style={{ padding: '10px' }}>{p.category}</td>
-                  <td style={{ padding: '10px', fontFamily: 'monospace' }}>{p.supplierId}</td>
-                  <td style={{ padding: '10px' }}>{p.supplierInfo}</td>
-                  <td style={{ padding: '10px' }}>{p.purchasePrice}</td>
-                  <td style={{ padding: '10px' }}>{p.sellingPrice}</td>
-                  <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>{p.qtySold}</td>
-                  <td style={{ padding: '10px', color: p.stock <= 5 ? '#ef4444' : '#64748b' }}>{p.stock}</td>
+                  <td style={{ padding: '10px' }}>#{s.rank}</td>
+                  <td style={{ padding: '10px', fontFamily: 'monospace' }}>{s.staffId}</td>
+                  <td style={{ padding: '10px', fontWeight: 'bold' }}>{s.name}</td>
+                  <td style={{ padding: '10px' }}>{s.role}</td>
+                  <td style={{ padding: '10px' }}>{s.phone}</td>
+                  <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>{s.invoices}</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}>{s.unitsSold}</td>
+                  <td style={{ padding: '10px', fontWeight: 'bold', color: '#1e293b' }}>{s.revenue}</td>
+                  <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>{s.commission}</td>
+                  <td style={{ padding: '10px' }}>{s.avgBill}</td>
                 </tr>
               ))}
+              {topStaffReport.length === 0 && (
+                <tr>
+                  <td colSpan={10} style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No staff performance data available</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -8,10 +8,10 @@ import { staffService } from '@/lib/api';
 
 const Settings = () => {
   const [shopName, setShopName] = useLocalStorage("shopName_flipflex", "Raju Electricals");
-  const [gstNumberRaw] = useLocalStorage('gstNumber_v3', '33JPNPK3337F1ZR');
+  const [gstNumberRaw, setGstNumberRaw] = useLocalStorage('gstNumber_v4', '33BJLPN3590D1Z7');
   const gstNumber =
-    !gstNumberRaw || gstNumberRaw === 'YOUR_GST_NUMBER_HERE'
-      ? '33JPNPK3337F1ZR'
+    !gstNumberRaw || gstNumberRaw === 'YOUR_GST_NUMBER_HERE' || gstNumberRaw === '33JPNPK3337F1ZR'
+      ? '33BJLPN3590D1Z7'
       : gstNumberRaw.toString().trim();
 
   const [billMessage, setBillMessage] = useLocalStorage('billMessage', 'Thank You For Your Purchasing');
@@ -144,8 +144,8 @@ const Settings = () => {
               id="gstNumber"
               type="text"
               value={gstNumber}
-              readOnly
-              className="form-input mt-1 bg-gray-100 cursor-not-allowed"
+              onChange={e => setGstNumberRaw(e.target.value)}
+              className="form-input mt-1"
             />
           </div>
 

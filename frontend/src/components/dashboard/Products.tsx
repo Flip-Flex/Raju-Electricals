@@ -145,7 +145,7 @@ const Pagination = ({
 const Products = () => {
   const { user } = useAuth();
   const isCashier = user?.role?.toLowerCase() === 'cashier';
-  const { products: globalProducts, vendors: globalVendors, loading: globalLoading, refreshProducts, mutateProducts, isSyncing } = useGlobalData();
+  const { products: globalProducts, vendors: globalVendors, loading: globalLoading, refreshProducts, refreshVendors, mutateProducts, isSyncing } = useGlobalData();
   const { confirm: confirmAction, ConfirmationDialog } = useConfirm();
 
   // Data is already loaded by GlobalDataContext on login. No need to refresh on every navigation.
@@ -1083,7 +1083,7 @@ const Products = () => {
                     <th className="p-4">Retail price</th>
                     <th className="p-4">Wholesale price</th>
                     {!isCashier && <th className="p-4">GST</th>}
-                    <th className="p-4">Stock</th>{!isCashier && <th className="p-4">Action</th>}
+                    <th className="p-4">Stock</th>{!isCashier && <th className="p-4 sticky right-0 bg-gray-50 z-10 border-l border-gray-200 shadow-[-4px_0_10px_rgba(0,0,0,0.05)]">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -1217,7 +1217,7 @@ const Products = () => {
                             />
                           </td>
 
-                          <td className="p-4">
+                          <td className="p-4 sticky right-0 bg-blue-50 z-10 border-l border-gray-200 shadow-[-4px_0_10px_rgba(0,0,0,0.05)]">
                             <div className="flex gap-2">
                               <button onClick={handleSaveInline} disabled={isSaving} className="text-green-600 hover:text-green-800 p-1"><CheckCircle size={20} /></button>
                               <button onClick={handleCancelEdit} disabled={isSaving} className="text-red-500 hover:text-red-700 p-1"><X size={20} /></button>
@@ -1228,7 +1228,7 @@ const Products = () => {
                     }
 
                     return (
-                      <tr key={product.id} className={`border-t transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                      <tr key={product.id} className={`group border-t transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                         <td className="p-4"><input type="checkbox" checked={isSelected} onChange={() => handleSelectProduct(product.id, product)} className="form-checkbox" /></td>
                         <td className="p-4">{((currentPage - 1) * itemsPerPage) + index + 1}</td>
                         <td className="p-4">{formatDate(product.purchaseDate)}</td>
@@ -1266,7 +1266,7 @@ const Products = () => {
                         {!isCashier && <td className="p-4">{product.purchaseGst}%</td>}
                         <td className="p-4 font-bold">{formatQty(product.stockQuantity)}</td>
                         {!isCashier && (
-                          <td className="p-4">
+                          <td className={`p-4 sticky right-0 z-10 border-l border-gray-200 shadow-[-4px_0_10px_rgba(0,0,0,0.05)] ${isSelected ? 'bg-blue-50' : 'bg-white group-hover:bg-gray-50'}`}>
                             <div className="flex gap-3">
                               <button onClick={() => handleEditClick(product)} className="text-blue-600 hover:text-blue-800"><Pencil size={18} /></button>
                               <button onClick={() => handleDeleteProduct(product.id)} className="text-red-600 hover:text-red-800"><Trash2 size={18} /></button>

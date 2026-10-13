@@ -71,7 +71,7 @@ const LowStockProductsModal: React.FC<LowStockProductsModalProps> = ({ isOpen, o
                     </td>
                     <td className="p-4 text-xs text-slate-400 font-mono font-bold">{p.id}</td>
                     <td className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">{p.category || 'N/A'}</td>
-                    <td className="p-4 text-right font-black text-slate-700">?{(p.purchaseRate || 0).toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
+                    <td className="p-4 text-right font-black text-slate-700">₹{(p.purchaseRate || 0).toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
                     <td className="p-4 text-center">
                        <span className="font-black text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
                           {(p.qtySold || 0) + (p.stock || 0)}

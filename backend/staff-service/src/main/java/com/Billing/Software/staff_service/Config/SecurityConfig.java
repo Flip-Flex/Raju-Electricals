@@ -1,10 +1,13 @@
 package com.Billing.Software.staff_service.Config;
 
+import com.Billing.Software.staff_service.Security.FirebaseAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
@@ -12,7 +15,14 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
+
+    private final FirebaseAuthFilter firebaseAuthFilter;
+
+    public SecurityConfig(FirebaseAuthFilter firebaseAuthFilter) {
+        this.firebaseAuthFilter = firebaseAuthFilter;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -20,8 +30,9 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll() // ALLOW ALL REQUESTS FOR NOW
-                );
+                        .anyRequest().permitAll() // General endpoints open, method-level security enforced by @PreAuthorize
+                )
+                .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
