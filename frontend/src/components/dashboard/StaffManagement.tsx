@@ -50,9 +50,10 @@ const StaffManagement = () => {
         setTargetsLoading(true);
         try {
             const res = await staffApi.getAllTargets();
-            setTargets(res.data || []);
+            setTargets(Array.isArray(res.data) ? res.data : []);
         } catch (err) {
             console.error("Failed to load staff targets", err);
+            setTargets([]);
         } finally {
             setTargetsLoading(false);
         }
@@ -62,9 +63,10 @@ const StaffManagement = () => {
         setTasksLoading(true);
         try {
             const res = await staffApi.getAllTasks();
-            setTasks(res.data || []);
+            setTasks(Array.isArray(res.data) ? res.data : []);
         } catch (err) {
             console.error("Failed to load staff tasks", err);
+            setTasks([]);
         } finally {
             setTasksLoading(false);
         }

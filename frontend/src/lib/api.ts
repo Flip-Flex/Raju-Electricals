@@ -43,9 +43,10 @@ customerService.interceptors.request.use(authInterceptor);
 
 // --- API Call Logger (temporary — remove after 24h audit) ---
 const apiLogger = (config: any) => {
-  const service = config.baseURL?.includes('product') ? 'product'
-    : config.baseURL?.includes('billing') || config.baseURL?.includes('report') ? 'billing'
-    : config.baseURL?.includes('staff') ? 'staff'
+  const urlToCheck = `${config.baseURL || ''}${config.url || ''}`.toLowerCase();
+  const service = urlToCheck.includes('product') ? 'product'
+    : urlToCheck.includes('billing') || urlToCheck.includes('report') ? 'billing'
+    : urlToCheck.includes('staff') ? 'staff'
     : 'vendor';
   console.log(`[API ${service}] ${config.method?.toUpperCase()} ${config.url} @ ${new Date().toLocaleTimeString()}`);
   return config;

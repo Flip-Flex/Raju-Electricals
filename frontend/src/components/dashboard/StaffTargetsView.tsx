@@ -28,7 +28,8 @@ const StaffTargetsView: React.FC<StaffTargetsViewProps> = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Filter targets for selected staff (or all if none selected)
-  const displayTargets = targets.filter(t => {
+  const safeTargets = Array.isArray(targets) ? targets : [];
+  const displayTargets = safeTargets.filter(t => {
     const matchesStaff = selectedStaff ? t.staffId === selectedStaff.id : true;
     const matchesPeriod = filterPeriod === 'ALL' ? true : t.period === filterPeriod;
     return matchesStaff && matchesPeriod;

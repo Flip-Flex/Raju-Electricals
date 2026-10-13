@@ -16,8 +16,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.List;
 
+import com.google.cloud.firestore.DocumentSnapshot;
+import com.google.cloud.firestore.Firestore;
+import org.springframework.beans.factory.annotation.Autowired;
+
 @Component
 public class FirebaseAuthFilter extends OncePerRequestFilter {
+
+    @Autowired(required = false)
+    private Firestore firestore;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -50,6 +57,20 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
 
             String uid = decoded.getUid();
             String roleStr = (String) decoded.getClaims().get("role");
+            if (roleStr == null || !roleStr.equalsIgnoreCase("ADMIN")) {
+                if (firestore != null) {
+                    try {
+                        DocumentSnapshot userDoc = firestore.collection("users").document(uid).get().get();
+                        if (userDoc.exists()) {
+                            String fsRole = userDoc.getString("role");
+                            if (fsRole != null && fsRole.equalsIgnoreCase("ADMIN")) {
+                                roleStr = "ADMIN";
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
             if (roleStr == null || !roleStr.equalsIgnoreCase("ADMIN")) {
                 roleStr = "CASHIER";
             }

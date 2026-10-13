@@ -29,14 +29,24 @@ const TasksAndTargets: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [targetsRes, tasksRes] = await Promise.all([
+      const [targetsRes, tasksRes] = await Promise.allSettled([
         staffApi.getAllTargets(),
         staffApi.getAllTasks(),
       ]);
-      setTargets(targetsRes.data || []);
-      setTasks(tasksRes.data || []);
+      if (targetsRes.status === 'fulfilled' && Array.isArray(targetsRes.value?.data)) {
+        setTargets(targetsRes.value.data);
+      } else {
+        setTargets([]);
+      }
+      if (tasksRes.status === 'fulfilled' && Array.isArray(tasksRes.value?.data)) {
+        setTasks(tasksRes.value.data);
+      } else {
+        setTasks([]);
+      }
     } catch (err) {
       console.error('Failed to load targets or tasks', err);
+      setTargets([]);
+      setTasks([]);
     } finally {
       setLoading(false);
     }

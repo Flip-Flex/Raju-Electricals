@@ -31,7 +31,8 @@ const StaffTasksView: React.FC<StaffTasksViewProps> = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Filter tasks
-  const filteredTasks = tasks.filter(t => {
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const filteredTasks = safeTasks.filter(t => {
     const matchesStaff = selectedStaff
       ? t.assignedStaffId === selectedStaff.id || t.assignedStaffId === 'ALL'
       : true;
