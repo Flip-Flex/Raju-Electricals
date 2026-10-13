@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { ShoppingCart, Printer, BarChart2, LogOut, Users, Briefcase, CalendarCheck, UserCheck, Calculator, MapPin, LayoutDashboard } from 'lucide-react';
+import { ShoppingCart, Printer, BarChart2, LogOut, Users, Briefcase, CalendarCheck, UserCheck, Calculator, MapPin, LayoutDashboard, Target } from 'lucide-react';
 import SelfAttendanceModal from './SelfAttendanceModal';
 
 const CashierSidebar = () => {
@@ -16,6 +16,7 @@ const CashierSidebar = () => {
     { name: 'Customers', path: '/cashier/customers', icon: Users },
     { name: 'Sales Rep', path: '/cashier/brokers', icon: Briefcase },
     { name: 'Staff Management', path: '/cashier/staff', icon: UserCheck },
+    { name: 'Task and Target', path: '/cashier/tasks-targets', icon: Target },
     { name: 'Daily Actions', path: '/cashier/daily-actions', icon: CalendarCheck },
     { name: 'Bills History', path: '/cashier/printed-bills', icon: Printer },
   ];

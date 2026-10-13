@@ -142,7 +142,7 @@ const CashierDashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Quick Targets Overview */}
         <div 
-          onClick={() => navigate('/cashier/staff')}
+          onClick={() => navigate('/cashier/tasks-targets')}
           className="bg-gradient-to-br from-indigo-50/80 to-blue-50/60 border border-indigo-100 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition cursor-pointer flex items-center justify-between group"
         >
           <div className="flex items-center gap-3.5">
@@ -168,7 +168,7 @@ const CashierDashboard = () => {
 
         {/* Quick Tasks Overview */}
         <div 
-          onClick={() => navigate('/cashier/staff')}
+          onClick={() => navigate('/cashier/tasks-targets')}
           className="bg-gradient-to-br from-emerald-50/80 to-teal-50/60 border border-emerald-100 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition cursor-pointer flex items-center justify-between group"
         >
           <div className="flex items-center gap-3.5">

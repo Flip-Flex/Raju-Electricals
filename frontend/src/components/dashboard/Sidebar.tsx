@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { ShoppingCart, Package, Users, BarChart2, Settings, LogOut, Printer, ClipboardList, PiggyBank, Briefcase, CreditCard, Calculator, LayoutDashboard } from 'lucide-react';
+import { ShoppingCart, Package, Users, BarChart2, Settings, LogOut, Printer, ClipboardList, PiggyBank, Briefcase, CreditCard, Calculator, LayoutDashboard, Target } from 'lucide-react';
 
 const Sidebar = () => {
   const navigate = useNavigate();
@@ -16,6 +16,7 @@ const Sidebar = () => {
     { name: 'Customer Details', path: '/admin/customers', icon: Users },
     { name: 'Daily Actions', path: '/admin/daily-actions', icon: ClipboardList },
     { name: 'Staff Management', path: '/admin/staff', icon: Briefcase },
+    { name: 'Task and Target', path: '/admin/tasks-targets', icon: Target },
     { name: 'Reports', path: '/admin/reports', icon: BarChart2 },
     { name: 'Settings', path: '/admin/settings', icon: Settings },
   ];
