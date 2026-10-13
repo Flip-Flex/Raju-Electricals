@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, CheckSquare, Plus, RefreshCw, Trophy, Clock, CheckCircle2, AlertCircle, Filter, User, TrendingUp } from 'lucide-react';
+import { Target, CheckSquare, Plus, RefreshCw, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useGlobalData } from '@/context/GlobalDataContext';
 import { staffApi, StaffTarget, StaffTask, Staff } from '@/lib/api';
@@ -49,30 +49,6 @@ const TasksAndTargets: React.FC = () => {
   const selectedStaffObj = selectedStaffId === 'ALL'
     ? null
     : (staffList.find((s: Staff) => s.id === selectedStaffId) || null);
-
-  // Compute summary stats
-  const activeTargets = targets.filter(t => t.status === 'ACTIVE');
-  const totalTargetGoal = activeTargets.reduce((sum, t) => sum + (Number(t.targetAmount) || 0), 0);
-
-  // Calculate live sales achieved for active targets
-  const totalAchievedRevenue = activeTargets.reduce((sum, t) => {
-    const staffBills = bills.filter((b: any) => {
-      if (b.staffId !== t.staffId) return false;
-      if (b.status === 'HOLD' || b.status === 'CANCELLED') return false;
-      if (t.period && t.period !== 'ALL') {
-        const billDate = new Date(b.createdAt || new Date());
-        if (isNaN(billDate.getTime())) return false;
-        const yearMonth = `${billDate.getFullYear()}-${String(billDate.getMonth() + 1).padStart(2, '0')}`;
-        return yearMonth === t.period;
-      }
-      return true;
-    });
-    return sum + staffBills.reduce((s: number, b: any) => s + (Number(b.finalAmount) || 0), 0);
-  }, 0);
-
-  const pendingTasks = tasks.filter(t => t.status === 'PENDING');
-  const completedTasks = tasks.filter(t => t.status === 'COMPLETED');
-  const urgentPendingCount = pendingTasks.filter(t => t.priority === 'URGENT' || t.priority === 'HIGH').length;
 
   return (
     <div className="space-y-6">
@@ -147,82 +123,6 @@ const TasksAndTargets: React.FC = () => {
               </button>
             </>
           )}
-        </div>
-      </div>
-
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Active Targets */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sales Targets</span>
-            <h3 className="text-2xl font-black text-slate-800 mt-1">
-              {activeTargets.length} <span className="text-xs font-semibold text-slate-400">Active</span>
-            </h3>
-            <p className="text-xs text-slate-500 font-medium mt-1">
-              Goal: ₹{totalTargetGoal.toLocaleString('en-IN')}
-            </p>
-          </div>
-          <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-            <Target size={24} />
-          </div>
-        </div>
-
-        {/* Card 2: Revenue Achieved */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Billed Sales</span>
-            <h3 className="text-2xl font-black text-emerald-600 mt-1">
-              ₹{totalAchievedRevenue.toLocaleString('en-IN')}
-            </h3>
-            <p className="text-xs text-slate-500 font-medium mt-1 flex items-center gap-1">
-              <TrendingUp size={13} className="text-emerald-500" />
-              <span>
-                {totalTargetGoal > 0
-                  ? `${Math.min(Math.round((totalAchievedRevenue / totalTargetGoal) * 100), 100)}% achieved`
-                  : 'Live from sales bills'}
-              </span>
-            </p>
-          </div>
-          <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-            <Trophy size={24} />
-          </div>
-        </div>
-
-        {/* Card 3: Pending Tasks */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Pending Tasks</span>
-            <h3 className="text-2xl font-black text-amber-600 mt-1">
-              {pendingTasks.length}
-            </h3>
-            <p className="text-xs text-slate-500 font-medium mt-1">
-              {urgentPendingCount > 0 ? (
-                <span className="text-rose-600 font-bold">{urgentPendingCount} high priority</span>
-              ) : (
-                'Standard priority'
-              )}
-            </p>
-          </div>
-          <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-            <Clock size={24} />
-          </div>
-        </div>
-
-        {/* Card 4: Completed Tasks */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Completed Tasks</span>
-            <h3 className="text-2xl font-black text-purple-600 mt-1">
-              {completedTasks.length}
-            </h3>
-            <p className="text-xs text-slate-500 font-medium mt-1">
-              Total {tasks.length} tasks assigned
-            </p>
-          </div>
-          <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-            <CheckCircle2 size={24} />
-          </div>
         </div>
       </div>
 
