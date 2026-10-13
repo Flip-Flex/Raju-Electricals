@@ -176,7 +176,55 @@ export const staffApi = {
   // Self Attendance (Cashier geo-mark)
   selfMarkAttendance: (data: { staffId: string; date: string; latitude: number; longitude: number }) =>
     staffService.post('/staff/attendance/self-mark', data),
+
+  // Targets (Admin can create/edit/delete, everyone can view)
+  getAllTargets: () => staffService.get<StaffTarget[]>('/staff/targets'),
+  getTargetsByStaff: (staffId: string) => staffService.get<StaffTarget[]>(`/staff/targets/staff/${staffId}`),
+  createTarget: (data: StaffTarget) => staffService.post<{ id: string; message: string }>('/staff/targets', data),
+  updateTarget: (id: string, data: Partial<StaffTarget>) => staffService.put(`/staff/targets/${id}`, data),
+  deleteTarget: (id: string) => staffService.delete(`/staff/targets/${id}`),
+
+  // Tasks (Admin can create/edit/delete, Staff/Cashier can complete)
+  getAllTasks: () => staffService.get<StaffTask[]>('/staff/tasks'),
+  getTasksByStaff: (staffId: string) => staffService.get<StaffTask[]>(`/staff/tasks/staff/${staffId}`),
+  createTask: (data: StaffTask) => staffService.post<{ id: string; message: string }>('/staff/tasks', data),
+  updateTaskStatus: (id: string, status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED', completedBy?: string) =>
+    staffService.patch(`/staff/tasks/${id}/status`, { status, completedBy }),
+  updateTask: (id: string, data: Partial<StaffTask>) => staffService.put(`/staff/tasks/${id}`, data),
+  deleteTask: (id: string) => staffService.delete(`/staff/tasks/${id}`),
 };
+
+export interface StaffTarget {
+  id?: string;
+  staffId: string;
+  staffName: string;
+  period: string; // e.g. "2026-10" or "ALL" or custom string
+  targetAmount: number; // in Rupees
+  targetQuantity?: number;
+  status?: 'IN_PROGRESS' | 'ACHIEVED' | 'EXPIRED';
+  notes?: string;
+  startDate?: string;
+  endDate?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface StaffTask {
+  id?: string;
+  title: string;
+  description?: string;
+  assignedStaffId: string; // Staff ID or "ALL"
+  assignedStaffName?: string;
+  dueDate: string; // "YYYY-MM-DD"
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+  createdBy?: string;
+  createdAt?: string;
+  completedAt?: string;
+  completedBy?: string;
+}
+
 
 export interface SalarySlip {
   staffId: string;

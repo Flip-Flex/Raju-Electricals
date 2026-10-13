@@ -7,7 +7,10 @@ import com.Billing.Software.staff_service.Dtos.StaffLoginRequest;
 import com.Billing.Software.staff_service.Entity.AppSettings;
 import com.Billing.Software.staff_service.Entity.Role;
 import com.Billing.Software.staff_service.Entity.Staff;
+import com.Billing.Software.staff_service.Entity.StaffTarget;
+import com.Billing.Software.staff_service.Entity.StaffTask;
 import com.Billing.Software.staff_service.Service.StaffService;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -198,4 +201,81 @@ public class StaffController {
             @PathVariable String yearMonth) throws Exception {
         return service.getMySalary(id, yearMonth);
     }
+
+    // ==================== STAFF TARGETS ====================
+
+    @PostMapping("/targets")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> createTarget(@RequestBody StaffTarget target) throws Exception {
+        String id = service.createTarget(target);
+        return ResponseEntity.ok(Map.of("id", id, "message", "Target created successfully"));
+    }
+
+    @GetMapping("/targets")
+    public List<StaffTarget> getAllTargets() throws Exception {
+        return service.getAllTargets();
+    }
+
+    @GetMapping("/targets/staff/{staffId}")
+    public List<StaffTarget> getTargetsByStaff(@PathVariable String staffId) throws Exception {
+        return service.getTargetsByStaff(staffId);
+    }
+
+    @PutMapping("/targets/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> updateTarget(@PathVariable String id, @RequestBody Map<String, Object> updates) throws Exception {
+        service.updateTarget(id, updates);
+        return ResponseEntity.ok(Map.of("message", "Target updated successfully"));
+    }
+
+    @DeleteMapping("/targets/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> deleteTarget(@PathVariable String id) throws Exception {
+        service.deleteTarget(id);
+        return ResponseEntity.ok(Map.of("message", "Target deleted successfully"));
+    }
+
+    // ==================== STAFF TASKS ====================
+
+    @PostMapping("/tasks")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> createTask(@RequestBody StaffTask task) throws Exception {
+        String id = service.createTask(task);
+        return ResponseEntity.ok(Map.of("id", id, "message", "Task appointed successfully"));
+    }
+
+    @GetMapping("/tasks")
+    public List<StaffTask> getAllTasks() throws Exception {
+        return service.getAllTasks();
+    }
+
+    @GetMapping("/tasks/staff/{staffId}")
+    public List<StaffTask> getTasksByStaff(@PathVariable String staffId) throws Exception {
+        return service.getTasksByStaff(staffId);
+    }
+
+    @PatchMapping("/tasks/{id}/status")
+    public ResponseEntity<?> updateTaskStatus(
+            @PathVariable String id,
+            @RequestBody Map<String, String> body) throws Exception {
+        String status = body.getOrDefault("status", "COMPLETED");
+        String completedBy = body.get("completedBy");
+        service.updateTaskStatus(id, status, completedBy);
+        return ResponseEntity.ok(Map.of("message", "Task status updated successfully"));
+    }
+
+    @PutMapping("/tasks/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> updateTask(@PathVariable String id, @RequestBody Map<String, Object> updates) throws Exception {
+        service.updateTask(id, updates);
+        return ResponseEntity.ok(Map.of("message", "Task updated successfully"));
+    }
+
+    @DeleteMapping("/tasks/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> deleteTask(@PathVariable String id) throws Exception {
+        service.deleteTask(id);
+        return ResponseEntity.ok(Map.of("message", "Task deleted successfully"));
+    }
 }
+

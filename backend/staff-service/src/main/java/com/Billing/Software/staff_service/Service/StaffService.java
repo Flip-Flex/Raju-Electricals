@@ -7,6 +7,8 @@ import com.Billing.Software.staff_service.Dtos.StaffLoginRequest;
 import com.Billing.Software.staff_service.Entity.AppSettings;
 import com.Billing.Software.staff_service.Entity.Role;
 import com.Billing.Software.staff_service.Entity.Staff;
+import com.Billing.Software.staff_service.Entity.StaffTarget;
+import com.Billing.Software.staff_service.Entity.StaffTask;
 import com.google.cloud.firestore.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -28,6 +30,9 @@ public class StaffService {
     private static final String COL_COMMISSIONS = "staff_commissions";
     private static final String COL_COUNTERS = "_counters";
     private static final String COL_APP_SETTINGS = "app_settings";
+    private static final String COL_TARGETS = "staff_targets";
+    private static final String COL_TASKS = "staff_tasks";
+
 
     // --- STAFF CRUD ---
     @CacheEvict(value = "staff", allEntries = true)
@@ -710,5 +715,101 @@ public class StaffService {
                 Math.sin(dLon / 2) * Math.sin(dLon / 2);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c;
+    }
+
+    // ==================== TARGETS CRUD ====================
+
+    public String createTarget(StaffTarget target) throws Exception {
+        if (target.getId() == null || target.getId().trim().isEmpty()) {
+            target.setId(UUID.randomUUID().toString());
+        }
+        if (target.getCreatedAt() == null) {
+            target.setCreatedAt(new Date());
+        }
+        target.setUpdatedAt(new Date());
+        if (target.getStatus() == null || target.getStatus().trim().isEmpty()) {
+            target.setStatus("IN_PROGRESS");
+        }
+        firestore.collection(COL_TARGETS).document(target.getId()).set(target).get();
+        return target.getId();
+    }
+
+    public List<StaffTarget> getAllTargets() throws Exception {
+        return firestore.collection(COL_TARGETS).get().get().toObjects(StaffTarget.class);
+    }
+
+    public List<StaffTarget> getTargetsByStaff(String staffId) throws Exception {
+        return firestore.collection(COL_TARGETS)
+                .whereEqualTo("staffId", staffId)
+                .get().get().toObjects(StaffTarget.class);
+    }
+
+    public void updateTarget(String id, Map<String, Object> updates) throws Exception {
+        updates.put("updatedAt", new Date());
+        firestore.collection(COL_TARGETS).document(id).update(updates).get();
+    }
+
+    public void deleteTarget(String id) throws Exception {
+        firestore.collection(COL_TARGETS).document(id).delete().get();
+    }
+
+    // ==================== TASKS CRUD ====================
+
+    public String createTask(StaffTask task) throws Exception {
+        if (task.getId() == null || task.getId().trim().isEmpty()) {
+            task.setId(UUID.randomUUID().toString());
+        }
+        if (task.getCreatedAt() == null) {
+            task.setCreatedAt(new Date());
+        }
+        if (task.getStatus() == null || task.getStatus().trim().isEmpty()) {
+            task.setStatus("PENDING");
+        }
+        if (task.getPriority() == null || task.getPriority().trim().isEmpty()) {
+            task.setPriority("MEDIUM");
+        }
+        firestore.collection(COL_TASKS).document(task.getId()).set(task).get();
+        return task.getId();
+    }
+
+    public List<StaffTask> getAllTasks() throws Exception {
+        return firestore.collection(COL_TASKS).get().get().toObjects(StaffTask.class);
+    }
+
+    public List<StaffTask> getTasksByStaff(String staffId) throws Exception {
+        List<StaffTask> specific = firestore.collection(COL_TASKS)
+                .whereEqualTo("assignedStaffId", staffId)
+                .get().get().toObjects(StaffTask.class);
+        List<StaffTask> general = firestore.collection(COL_TASKS)
+                .whereEqualTo("assignedStaffId", "ALL")
+                .get().get().toObjects(StaffTask.class);
+        List<StaffTask> combined = new ArrayList<>(specific);
+        for (StaffTask t : general) {
+            if (combined.stream().noneMatch(x -> x.getId().equals(t.getId()))) {
+                combined.add(t);
+            }
+        }
+        return combined;
+    }
+
+    public void updateTaskStatus(String id, String status, String completedBy) throws Exception {
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("status", status);
+        if ("COMPLETED".equalsIgnoreCase(status)) {
+            updates.put("completedAt", new Date());
+            updates.put("completedBy", completedBy != null ? completedBy : "Staff");
+        } else {
+            updates.put("completedAt", null);
+            updates.put("completedBy", null);
+        }
+        firestore.collection(COL_TASKS).document(id).update(updates).get();
+    }
+
+    public void updateTask(String id, Map<String, Object> updates) throws Exception {
+        firestore.collection(COL_TASKS).document(id).update(updates).get();
+    }
+
+    public void deleteTask(String id) throws Exception {
+        firestore.collection(COL_TASKS).document(id).delete().get();
     }
 }

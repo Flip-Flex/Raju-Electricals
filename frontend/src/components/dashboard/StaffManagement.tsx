@@ -5,9 +5,9 @@ import {
     CheckCircle, XCircle, Clock, ChevronLeft, ChevronRight, Loader2,
 
     FileText, UploadCloud, DollarSign, Timer, Users, Briefcase, CreditCard, Shield, Activity,
-    UserCheck, Save, Edit3
+    UserCheck, Save, Edit3, Target, CheckSquare
 } from 'lucide-react';
-import { staffApi, Staff, Attendance, Role, Commission, billingApi } from '@/lib/api';
+import { staffApi, Staff, Attendance, Role, Commission, billingApi, StaffTarget, StaffTask } from '@/lib/api';
 import {
     format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay,
     addMonths, subMonths, getDay, isToday, startOfWeek, endOfWeek, isSameMonth
@@ -17,6 +17,10 @@ import { useCachedResource } from '@/hooks/useCachedResource';
 import { SyncIndicator } from '@/components/SyncIndicator';
 import StaffSalaryView from './StaffSalaryView';
 import ConfirmPaymentModal from './ConfirmPaymentModal';
+import StaffTargetsView from './StaffTargetsView';
+import StaffTasksView from './StaffTasksView';
+import StaffTargetModal from './StaffTargetModal';
+import StaffTaskModal from './StaffTaskModal';
 
 import { storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -26,11 +30,50 @@ import { useAuth } from '@/context/AuthContext';
 const StaffManagement = () => {
     const { user } = useAuth();
     const isAdmin = user?.role?.toLowerCase() === 'admin';
-    const [activeTab, setActiveTab] = useState<'directory' | 'salary'>('directory');
-    const { staff: staffList, loading: staffLoading, refreshStaff, isSyncing } = useGlobalData();
+    const [activeTab, setActiveTab] = useState<'directory' | 'targets' | 'tasks' | 'salary'>('directory');
+    const { staff: staffList, loading: staffLoading, refreshStaff, isSyncing, bills = [] } = useGlobalData();
     const [searchTerm, setSearchTerm] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const { confirm: confirmAction, ConfirmationDialog } = useConfirm();
+
+    // Targets & Tasks State
+    const [targets, setTargets] = useState<StaffTarget[]>([]);
+    const [tasks, setTasks] = useState<StaffTask[]>([]);
+    const [targetsLoading, setTargetsLoading] = useState(false);
+    const [tasksLoading, setTasksLoading] = useState(false);
+    const [targetModalOpen, setTargetModalOpen] = useState(false);
+    const [taskModalOpen, setTaskModalOpen] = useState(false);
+    const [editingTarget, setEditingTarget] = useState<StaffTarget | null>(null);
+    const [editingTask, setEditingTask] = useState<StaffTask | null>(null);
+
+    const fetchTargets = async () => {
+        setTargetsLoading(true);
+        try {
+            const res = await staffApi.getAllTargets();
+            setTargets(res.data || []);
+        } catch (err) {
+            console.error("Failed to load staff targets", err);
+        } finally {
+            setTargetsLoading(false);
+        }
+    };
+
+    const fetchTasks = async () => {
+        setTasksLoading(true);
+        try {
+            const res = await staffApi.getAllTasks();
+            setTasks(res.data || []);
+        } catch (err) {
+            console.error("Failed to load staff tasks", err);
+        } finally {
+            setTasksLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchTargets();
+        fetchTasks();
+    }, []);
 
     // Reset to directory if non-admin tries to stay on salary tab
     useEffect(() => {
@@ -38,6 +81,7 @@ const StaffManagement = () => {
             setActiveTab('directory');
         }
     }, [isAdmin, activeTab]);
+
 
     const handleDelete = (id: string) => {
         if (!isAdmin) {
@@ -75,6 +119,8 @@ const StaffManagement = () => {
                     <SyncIndicator isSyncing={isSyncing} />
                     <div className="flex space-x-1 bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
                         <TabButton active={activeTab === 'directory'} onClick={() => setActiveTab('directory')} icon={Briefcase} label="Directory" />
+                        <TabButton active={activeTab === 'targets'} onClick={() => setActiveTab('targets')} icon={Target} label="Targets" />
+                        <TabButton active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={CheckSquare} label="To-Do Tasks" />
                         {isAdmin && (
                             <TabButton active={activeTab === 'salary'} onClick={() => setActiveTab('salary')} icon={DollarSign} label="Payroll" />
                         )}
@@ -96,6 +142,42 @@ const StaffManagement = () => {
                             deletingId={deletingId}
                             confirmAction={confirmAction}
                             isAdmin={isAdmin}
+                            targets={targets}
+                            tasks={tasks}
+                            bills={bills}
+                            onOpenAddTarget={(staffId?: string) => { setEditingTarget(null); setTargetModalOpen(true); }}
+                            onEditTarget={(t: any) => { setEditingTarget(t); setTargetModalOpen(true); }}
+                            onOpenAddTask={(staffId?: string) => { setEditingTask(null); setTaskModalOpen(true); }}
+                            onEditTask={(t: any) => { setEditingTask(t); setTaskModalOpen(true); }}
+                            onRefreshTargets={fetchTargets}
+                            onRefreshTasks={fetchTasks}
+                        />
+                    </div>
+                )}
+                {activeTab === 'targets' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
+                        <StaffTargetsView
+                            targets={targets}
+                            staffList={staffList}
+                            selectedStaff={null}
+                            bills={bills}
+                            isAdmin={isAdmin}
+                            onOpenAddModal={() => { setEditingTarget(null); setTargetModalOpen(true); }}
+                            onEditTarget={(t) => { setEditingTarget(t); setTargetModalOpen(true); }}
+                            onRefresh={fetchTargets}
+                        />
+                    </div>
+                )}
+                {activeTab === 'tasks' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
+                        <StaffTasksView
+                            tasks={tasks}
+                            staffList={staffList}
+                            selectedStaff={null}
+                            isAdmin={isAdmin}
+                            onOpenAddModal={() => { setEditingTask(null); setTaskModalOpen(true); }}
+                            onEditTask={(t) => { setEditingTask(t); setTaskModalOpen(true); }}
+                            onRefresh={fetchTasks}
                         />
                     </div>
                 )}
@@ -104,11 +186,29 @@ const StaffManagement = () => {
                         <StaffSalaryView />
                     </div>
                 )}
-
             </div>
+
+            {/* Target Modal (Admin Only) */}
+            <StaffTargetModal
+                isOpen={targetModalOpen}
+                onClose={() => { setTargetModalOpen(false); setEditingTarget(null); }}
+                staffList={staffList}
+                initialTarget={editingTarget}
+                onSuccess={fetchTargets}
+            />
+
+            {/* Task Modal (Admin Only) */}
+            <StaffTaskModal
+                isOpen={taskModalOpen}
+                onClose={() => { setTaskModalOpen(false); setEditingTask(null); }}
+                staffList={staffList}
+                initialTask={editingTask}
+                onSuccess={fetchTasks}
+            />
         </div>
     );
 };
+
 
 const TabButton = ({ active, onClick, icon: Icon, label }: any) => (
     <button
@@ -250,12 +350,17 @@ const MarkAttendanceDialog = ({ staff, date, currentStatus, onClose, onSuccess }
 };
 
 // --- DIRECTORY VIEW (Split Pane Layout) ---
-const DirectoryView = ({ staff, loading, searchTerm, setSearchTerm, onRefresh, onDelete, deletingId, confirmAction, isAdmin }: any) => {
+const DirectoryView = ({
+    staff, loading, searchTerm, setSearchTerm, onRefresh, onDelete, deletingId, confirmAction, isAdmin,
+    targets = [], tasks = [], bills = [], onOpenAddTarget, onEditTarget, onOpenAddTask, onEditTask, onRefreshTargets, onRefreshTasks
+}: any) => {
+    const [staffSubTab, setStaffSubTab] = useState<'attendance' | 'targets' | 'tasks'>('attendance');
     const [showModal, setShowModal] = useState(false);
     const [showCalendarModal, setShowCalendarModal] = useState(false);
     const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
     const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
     const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
 
     // Payment Modal State
     const [paymentModalReq, setPaymentModalReq] = useState<{ isOpen: boolean; commission: any | null }>({ isOpen: false, commission: null });
@@ -688,8 +793,39 @@ const DirectoryView = ({ staff, loading, searchTerm, setSearchTerm, onRefresh, o
                             </div>
                         </div>
 
-                        {/* Today's Action & Stats */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+                        {/* Sub-tabs for Selected Staff */}
+                        <div className="flex space-x-2 bg-gray-100 p-1.5 rounded-xl self-start shrink-0">
+                            <button
+                                onClick={() => setStaffSubTab('attendance')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                                    staffSubTab === 'attendance' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                            >
+                                <CalendarIcon size={14} /> Attendance & Commissions
+                            </button>
+                            <button
+                                onClick={() => setStaffSubTab('targets')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                                    staffSubTab === 'targets' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                            >
+                                <Target size={14} className="text-blue-500" /> Sales Targets
+                            </button>
+                            <button
+                                onClick={() => setStaffSubTab('tasks')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                                    staffSubTab === 'tasks' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                            >
+                                <CheckSquare size={14} className="text-emerald-500" /> To-Do Tasks
+                            </button>
+                        </div>
+
+                        {staffSubTab === 'attendance' && (
+                            <>
+                                {/* Today's Action & Stats */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+
                             {/* Today's Action Card */}
                             <div className="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col justify-between">
                                 <div className="flex justify-between items-center mb-4">
@@ -883,9 +1019,36 @@ const DirectoryView = ({ staff, loading, searchTerm, setSearchTerm, onRefresh, o
                                     </table>
                                 </div>
                             </div>
-
                         </div>
+                        </>
+                    )}
+
+                    {staffSubTab === 'targets' && (
+                        <StaffTargetsView
+                            targets={targets}
+                            staffList={staff}
+                            selectedStaff={selectedStaff}
+                            bills={bills}
+                            isAdmin={isAdmin}
+                            onOpenAddModal={() => onOpenAddTarget(selectedStaff.id)}
+                            onEditTarget={onEditTarget}
+                            onRefresh={onRefreshTargets}
+                        />
+                    )}
+
+                    {staffSubTab === 'tasks' && (
+                        <StaffTasksView
+                            tasks={tasks}
+                            staffList={staff}
+                            selectedStaff={selectedStaff}
+                            isAdmin={isAdmin}
+                            onOpenAddModal={() => onOpenAddTask(selectedStaff.id)}
+                            onEditTask={onEditTask}
+                            onRefresh={onRefreshTasks}
+                        />
+                    )}
                     </>
+
                 ) : (
                     <div className="flex-grow flex flex-col items-center justify-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
                         <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">

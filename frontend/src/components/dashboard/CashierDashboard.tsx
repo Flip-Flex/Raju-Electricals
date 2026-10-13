@@ -1,15 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { ShoppingCart, Package, Users, TrendingUp, AlertTriangle, PlusCircle, CreditCard, Banknote } from 'lucide-react';
+import { ShoppingCart, Package, Users, TrendingUp, AlertTriangle, PlusCircle, CreditCard, Banknote, Target, CheckSquare, ChevronRight } from 'lucide-react';
 import { useGlobalData } from '@/context/GlobalDataContext';
 import { format } from 'date-fns';
-import { daybookApi } from '@/lib/api';
+import { daybookApi, staffApi, StaffTarget, StaffTask } from '@/lib/api';
 import LowStockProductsModal from './LowStockProductsModal';
 import { useNavigate } from 'react-router-dom';
 
 const CashierDashboard = () => {
   const { bills = [], products = [], customers = [] } = useGlobalData() as any;
   const [isLowStockModalOpen, setIsLowStockModalOpen] = useState(false);
+  const [targets, setTargets] = useState<StaffTarget[]>([]);
+  const [tasks, setTasks] = useState<StaffTask[]>([]);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    staffApi.getAllTargets().then(res => setTargets(res.data || [])).catch(() => {});
+    staffApi.getAllTasks().then(res => setTasks(res.data || [])).catch(() => {});
+  }, []);
 
   const todayBills = bills.filter((b: any) => {
     const bDate = new Date(b.createdAt || new Date());
@@ -36,6 +43,7 @@ const CashierDashboard = () => {
     else acc.cash++;
     return acc;
   }, { cash: 0, upi: 0, card: 0, split: 0, partial: 0 });
+
 
   return (
     <div className="p-2 sm:p-4 max-w-7xl mx-auto space-y-6">
@@ -126,6 +134,61 @@ const CashierDashboard = () => {
                 {lowStockProducts.length}
                 {lowStockProducts.length > 0 && <span className="text-xs text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded-md">Action needed</span>}
             </h3>
+          </div>
+        </div>
+      </div>
+
+      {/* Staff Targets & To-Dos Banner */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Quick Targets Overview */}
+        <div 
+          onClick={() => navigate('/cashier/staff')}
+          className="bg-gradient-to-br from-indigo-50/80 to-blue-50/60 border border-indigo-100 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition cursor-pointer flex items-center justify-between group"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shadow-indigo-200">
+              <Target size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-800 text-base">Sales Targets</h3>
+                <span className="text-xs bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full">
+                  {targets.filter(t => t.status === 'ACTIVE').length} Active
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Target progress auto-computed from bill sales for assigned staff
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 text-xs font-bold text-indigo-600 group-hover:translate-x-1 transition-transform">
+            View <ChevronRight size={16} />
+          </div>
+        </div>
+
+        {/* Quick Tasks Overview */}
+        <div 
+          onClick={() => navigate('/cashier/staff')}
+          className="bg-gradient-to-br from-emerald-50/80 to-teal-50/60 border border-emerald-100 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition cursor-pointer flex items-center justify-between group"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm shadow-emerald-200">
+              <CheckSquare size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-800 text-base">To-Do Tasks</h3>
+                <span className="text-xs bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">
+                  {tasks.filter(t => t.status === 'PENDING').length} Pending
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Staff checklists assigned by Admin; check off upon completion
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 text-xs font-bold text-emerald-600 group-hover:translate-x-1 transition-transform">
+            View <ChevronRight size={16} />
           </div>
         </div>
       </div>
