@@ -4,7 +4,17 @@ import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { Save, Trash2, Loader2, MapPin, Navigation } from 'lucide-react';
 import { confirmAction } from '@/lib/confirm';
 import { clearAllCaches } from '@/lib/clearCache';
-import { staffService } from '@/lib/api';
+import { staffApi, AppSettings } from '@/lib/api';
+
+const OFFICE_STORAGE_KEY = 'raju_office_location_v1';
+
+const getCachedOfficeLocation = (): Partial<AppSettings> | null => {
+  try {
+    const raw = localStorage.getItem(OFFICE_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+};
 
 const Settings = () => {
   const [shopName, setShopName] = useLocalStorage("shopName_flipflex", "Raju Electricals");
@@ -18,13 +28,14 @@ const Settings = () => {
   const [defaultGst, setDefaultGst] = useLocalStorage('defaultGst', '');
   const [clearing, setClearing] = useState(false);
 
-  // App Location State
-  const [locationName, setLocationName] = useState('');
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
-  const [radiusMeters, setRadiusMeters] = useState('500');
-  const [halfDayCutoffTime, setHalfDayCutoffTime] = useState('10:30');
-  const [locationLoading, setLocationLoading] = useState(true);
+  // App Location State (Loaded immediately from memory/storage cache so it never flashes empty)
+  const cachedLoc = getCachedOfficeLocation();
+  const [locationName, setLocationName] = useState(cachedLoc?.locationName || '');
+  const [latitude, setLatitude] = useState(cachedLoc?.latitude != null ? cachedLoc.latitude.toString() : '');
+  const [longitude, setLongitude] = useState(cachedLoc?.longitude != null ? cachedLoc.longitude.toString() : '');
+  const [radiusMeters, setRadiusMeters] = useState(cachedLoc?.radiusMeters != null ? cachedLoc.radiusMeters.toString() : '50');
+  const [halfDayCutoffTime, setHalfDayCutoffTime] = useState(cachedLoc?.halfDayCutoffTime || '10:30');
+  const [locationLoading, setLocationLoading] = useState(!cachedLoc?.latitude);
   const [locationSaving, setLocationSaving] = useState(false);
   const [fetchingLocation, setFetchingLocation] = useState(false);
 
@@ -34,34 +45,56 @@ const Settings = () => {
 
   const fetchAppSettings = async () => {
     try {
-      const res = await staffService.get('/staff/settings');
+      const res = await staffApi.getSettings();
       const data = res.data;
-      setLocationName(data.locationName || '');
-      setLatitude(data.latitude?.toString() || '');
-      setLongitude(data.longitude?.toString() || '');
-      setRadiusMeters(data.radiusMeters?.toString() || '500');
-      setHalfDayCutoffTime(data.halfDayCutoffTime || '10:30');
+      if (data) {
+        if (data.latitude != null && data.latitude !== 0) {
+          setLatitude(data.latitude.toString());
+        }
+        if (data.longitude != null && data.longitude !== 0) {
+          setLongitude(data.longitude.toString());
+        }
+        if (data.locationName) setLocationName(data.locationName);
+        if (data.radiusMeters) setRadiusMeters(data.radiusMeters.toString());
+        if (data.halfDayCutoffTime) setHalfDayCutoffTime(data.halfDayCutoffTime);
+      }
     } catch (e) {
-      console.warn('Failed to load app settings', e);
+      console.warn('Failed to load app settings from cloud, keeping local cache', e);
     } finally {
       setLocationLoading(false);
     }
   };
 
   const handleSaveLocation = async () => {
+    const parsedLat = parseFloat(latitude);
+    const parsedLng = parseFloat(longitude);
+
+    if (isNaN(parsedLat) || isNaN(parsedLng) || (parsedLat === 0 && parsedLng === 0)) {
+      toast.error('Please enter valid Latitude and Longitude coordinates or click "Get Current Location" first');
+      return;
+    }
+
     setLocationSaving(true);
+    const payload: AppSettings = {
+      id: 'default_location',
+      locationName: locationName.trim() || 'Main Office',
+      latitude: parsedLat,
+      longitude: parsedLng,
+      radiusMeters: parseInt(radiusMeters) || 50,
+      halfDayCutoffTime: halfDayCutoffTime || '10:30',
+    };
+
+    // Save locally immediately
     try {
-      await staffService.post('/staff/settings', {
-        id: 'default_location',
-        locationName,
-        latitude: parseFloat(latitude) || 0,
-        longitude: parseFloat(longitude) || 0,
-        radiusMeters: parseInt(radiusMeters) || 500,
-        halfDayCutoffTime: halfDayCutoffTime || '10:30',
-      });
-      toast.success('Location settings saved!');
+      localStorage.setItem(OFFICE_STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
+
+    try {
+      await staffApi.saveSettings(payload);
+      toast.success('Location settings saved and synced to database!');
     } catch (e) {
-      toast.error('Failed to save location settings');
+      console.error(e);
+      toast.error('Saved locally, but failed to sync to cloud database.');
     } finally {
       setLocationSaving(false);
     }
@@ -75,20 +108,53 @@ const Settings = () => {
     setFetchingLocation(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setLatitude(position.coords.latitude.toFixed(6));
-        setLongitude(position.coords.longitude.toFixed(6));
+        const newLat = position.coords.latitude.toFixed(6);
+        const newLng = position.coords.longitude.toFixed(6);
+        setLatitude(newLat);
+        setLongitude(newLng);
         setFetchingLocation(false);
-        toast.success('Location fetched successfully!');
+        // Pre-save to storage so it never resets or gets lost even if page is refreshed
+        try {
+          const current = getCachedOfficeLocation() || {};
+          localStorage.setItem(OFFICE_STORAGE_KEY, JSON.stringify({
+            ...current,
+            latitude: parseFloat(newLat),
+            longitude: parseFloat(newLng),
+            locationName: locationName || current.locationName || 'Main Office',
+            radiusMeters: parseInt(radiusMeters) || 50,
+            halfDayCutoffTime: halfDayCutoffTime || '10:30',
+          }));
+        } catch {}
+        toast.success('Location fetched! Click "Save Location" or "Save Settings" to persist.');
       },
       (error) => {
         setFetchingLocation(false);
-        toast.error('Failed to get location. Please enable location services.');
+        toast.error('Failed to get location. Please enable location services in your browser.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // If coordinates are present, also save location so user never loses it
+    const parsedLat = parseFloat(latitude);
+    const parsedLng = parseFloat(longitude);
+    if (!isNaN(parsedLat) && !isNaN(parsedLng) && (parsedLat !== 0 || parsedLng !== 0)) {
+      const payload: AppSettings = {
+        id: 'default_location',
+        locationName: locationName.trim() || 'Main Office',
+        latitude: parsedLat,
+        longitude: parsedLng,
+        radiusMeters: parseInt(radiusMeters) || 50,
+        halfDayCutoffTime: halfDayCutoffTime || '10:30',
+      };
+      try {
+        localStorage.setItem(OFFICE_STORAGE_KEY, JSON.stringify(payload));
+        await staffApi.saveSettings(payload);
+      } catch (e) {
+        console.warn('Could not sync location during general save', e);
+      }
+    }
     toast.success("Settings Saved!");
   };
 

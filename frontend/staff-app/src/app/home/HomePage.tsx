@@ -26,15 +26,28 @@ interface OfficeLocation {
 
 type Phase = 'idle' | 'loading' | 'done' | 'marked';
 
+const STAFF_OFFICE_KEY = 'staff_office_location_v1';
+
+const getCachedOffice = (): OfficeLocation | null => {
+  try {
+    const raw = localStorage.getItem(STAFF_OFFICE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+};
+
 const HomePage = () => {
   const { user } = useAuth();
   const [todayStatus, setTodayStatus] = useState<TodayStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [phase, setPhase] = useState<Phase>('idle');
 
+  const cachedOffice = getCachedOffice();
   const [position, setPosition] = useState<GeoPosition | null>(null);
-  const [office, setOffice] = useState<OfficeLocation | null>(null);
-  const [geofenceEnabled, setGeofenceEnabled] = useState(false);
+  const [office, setOffice] = useState<OfficeLocation | null>(cachedOffice);
+  const [geofenceEnabled, setGeofenceEnabled] = useState(
+    Boolean(cachedOffice && (cachedOffice.latitude !== 0 || cachedOffice.longitude !== 0))
+  );
   const [distance, setDistance] = useState<number | null>(null);
   const [locState, setLocState] = useState<'checking' | 'ok' | 'far' | 'denied' | 'prompt' | 'off' | 'info'>('checking');
   const [locMsg, setLocMsg] = useState('');
@@ -51,16 +64,34 @@ const HomePage = () => {
       try {
         const [statusRes, settingsRes] = await Promise.all([
           attendanceService.checkToday(user.staffId, getTodayString()),
-          api.get('/settings').catch(() => ({ data: { latitude: 0, longitude: 0, radiusMeters: 500 } })),
+          api.get('/settings').catch((err) => {
+            console.warn('Failed to load settings from server, falling back to cached office', err);
+            return null;
+          }),
         ]);
         setTodayStatus(statusRes);
         if (statusRes.marked) setPhase('marked');
-        const lat = Number(settingsRes.data.latitude) || 0;
-        const lng = Number(settingsRes.data.longitude) || 0;
-        const rad = Number(settingsRes.data.radiusMeters) || 500;
-        setOffice({ latitude: lat, longitude: lng, radiusMeters: rad });
-        // If the office point is not configured (0,0), we can't enforce a geofence.
-        setGeofenceEnabled(lat !== 0 || lng !== 0);
+
+        if (settingsRes?.data) {
+          const lat = Number(settingsRes.data.latitude) || 0;
+          const lng = Number(settingsRes.data.longitude) || 0;
+          const rad = Number(settingsRes.data.radiusMeters) || 50;
+
+          if (lat !== 0 || lng !== 0) {
+            const newOffice = { latitude: lat, longitude: lng, radiusMeters: rad };
+            setOffice(newOffice);
+            setGeofenceEnabled(true);
+            try {
+              localStorage.setItem(STAFF_OFFICE_KEY, JSON.stringify(newOffice));
+            } catch {}
+          } else if (cachedOffice && (cachedOffice.latitude !== 0 || cachedOffice.longitude !== 0)) {
+            setOffice(cachedOffice);
+            setGeofenceEnabled(true);
+          }
+        } else if (cachedOffice && (cachedOffice.latitude !== 0 || cachedOffice.longitude !== 0)) {
+          setOffice(cachedOffice);
+          setGeofenceEnabled(true);
+        }
       } catch (e) {
         console.error('Init error', e);
       } finally {

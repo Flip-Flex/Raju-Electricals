@@ -131,64 +131,65 @@ const StaffManagement = () => {
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-auto bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative">
-                {activeTab === 'directory' && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col">
-                        <DirectoryView
-                            staff={staffList}
-                            loading={staffLoading}
-                            searchTerm={searchTerm}
-                            setSearchTerm={setSearchTerm}
-                            onRefresh={refreshStaff}
-                            onDelete={handleDelete}
-                            deletingId={deletingId}
-                            confirmAction={confirmAction}
-                            isAdmin={isAdmin}
-                            targets={targets}
-                            tasks={tasks}
-                            bills={bills}
-                            onOpenAddTarget={(staffId?: string) => { setEditingTarget(null); setTargetModalOpen(true); }}
-                            onEditTarget={(t: any) => { setEditingTarget(t); setTargetModalOpen(true); }}
-                            onOpenAddTask={(staffId?: string) => { setEditingTask(null); setTaskModalOpen(true); }}
-                            onEditTask={(t: any) => { setEditingTask(t); setTaskModalOpen(true); }}
-                            onRefreshTargets={fetchTargets}
-                            onRefreshTasks={fetchTasks}
-                        />
-                    </div>
-                )}
-                {activeTab === 'targets' && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
-                        <StaffTargetsView
-                            targets={targets}
-                            staffList={staffList}
-                            selectedStaff={null}
-                            bills={bills}
-                            isAdmin={isAdmin}
-                            onOpenAddModal={() => { setEditingTarget(null); setTargetModalOpen(true); }}
-                            onEditTarget={(t) => { setEditingTarget(t); setTargetModalOpen(true); }}
-                            onRefresh={fetchTargets}
-                        />
-                    </div>
-                )}
-                {activeTab === 'tasks' && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
-                        <StaffTasksView
-                            tasks={tasks}
-                            staffList={staffList}
-                            selectedStaff={null}
-                            isAdmin={isAdmin}
-                            onOpenAddModal={() => { setEditingTask(null); setTaskModalOpen(true); }}
-                            onEditTask={(t) => { setEditingTask(t); setTaskModalOpen(true); }}
-                            onRefresh={fetchTasks}
-                        />
-                    </div>
-                )}
-                {isAdmin && activeTab === 'salary' && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
-                        <StaffSalaryView />
-                    </div>
-                )}
-            </div>
+            {activeTab === 'directory' ? (
+                <div className="flex-1 min-h-0 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <DirectoryView
+                        staff={staffList}
+                        loading={staffLoading}
+                        searchTerm={searchTerm}
+                        setSearchTerm={setSearchTerm}
+                        onRefresh={refreshStaff}
+                        onDelete={handleDelete}
+                        deletingId={deletingId}
+                        confirmAction={confirmAction}
+                        isAdmin={isAdmin}
+                        targets={targets}
+                        tasks={tasks}
+                        bills={bills}
+                        onOpenAddTarget={(staffId?: string) => { setEditingTarget(null); setTargetModalOpen(true); }}
+                        onEditTarget={(t: any) => { setEditingTarget(t); setTargetModalOpen(true); }}
+                        onOpenAddTask={(staffId?: string) => { setEditingTask(null); setTaskModalOpen(true); }}
+                        onEditTask={(t: any) => { setEditingTask(t); setTaskModalOpen(true); }}
+                        onRefreshTargets={fetchTargets}
+                        onRefreshTasks={fetchTasks}
+                    />
+                </div>
+            ) : (
+                <div className="flex-1 overflow-auto bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative">
+                    {activeTab === 'targets' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
+                            <StaffTargetsView
+                                targets={targets}
+                                staffList={staffList}
+                                selectedStaff={null}
+                                bills={bills}
+                                isAdmin={isAdmin}
+                                onOpenAddModal={() => { setEditingTarget(null); setTargetModalOpen(true); }}
+                                onEditTarget={(t) => { setEditingTarget(t); setTargetModalOpen(true); }}
+                                onRefresh={fetchTargets}
+                            />
+                        </div>
+                    )}
+                    {activeTab === 'tasks' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
+                            <StaffTasksView
+                                tasks={tasks}
+                                staffList={staffList}
+                                selectedStaff={null}
+                                isAdmin={isAdmin}
+                                onOpenAddModal={() => { setEditingTask(null); setTaskModalOpen(true); }}
+                                onEditTask={(t) => { setEditingTask(t); setTaskModalOpen(true); }}
+                                onRefresh={fetchTasks}
+                            />
+                        </div>
+                    )}
+                    {isAdmin && activeTab === 'salary' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
+                            <StaffSalaryView />
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Target Modal (Admin Only) */}
             <StaffTargetModal
@@ -649,37 +650,40 @@ const DirectoryView = ({
                 message={`Mark ${paymentModalReq.commission?.billId || 'commission'} as PAID?`}
             />
             {/* Left Panel: List */}
-            <div className="w-1/3 bg-white rounded-xl shadow-sm flex flex-col border border-gray-200 overflow-hidden">
-                <div className="p-4 border-b bg-gray-50">
+            <div className="w-1/3 bg-white rounded-2xl shadow-sm flex flex-col border border-gray-200 overflow-hidden">
+                <div className="p-5 border-b bg-gray-50/70">
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                             <Users className="text-blue-600" size={20} /> Staff Directory
+                            <span className="text-xs bg-blue-100/80 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                                {filteredStaff.length}
+                            </span>
                         </h2>
                         {isAdmin && (
                             <button
                                 onClick={() => { setEditingStaff(null); setShowModal(true); }}
-                                className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 shadow-sm transition-colors"
+                                className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-700 shadow-sm transition-colors"
                                 title="Add Staff"
                             >
-                                <Plus size={20} />
+                                <Plus size={18} />
                             </button>
                         )}
                     </div>
                     <div className="relative">
-                        <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                        <Search className="absolute left-3.5 top-3 text-gray-400" size={17} />
                         <input
                             type="text"
-                            placeholder="Search staff..."
+                            placeholder="Search Name, Phone, Role..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 pr-4 py-2 border rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+                            className="pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl w-full focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-sm"
                         />
                     </div>
                 </div>
 
                 <div className="overflow-y-auto flex-grow custom-scrollbar">
                     {loading && staff.length === 0 ? (
-                        <div className="p-8 text-center text-gray-500"><Loader2 className="animate-spin mx-auto mb-2" /> Loading...</div>
+                        <div className="p-8 text-center text-gray-500"><Loader2 className="animate-spin mx-auto mb-2" /> Loading staff...</div>
                     ) : filteredStaff.length === 0 ? (
                         <div className="p-8 text-center text-gray-500">No staff found.</div>
                     ) : (
@@ -688,29 +692,40 @@ const DirectoryView = ({
                             const statusColor = record?.status === 'PRESENT' ? 'bg-green-500' :
                                 record?.status === 'ABSENT' ? 'bg-red-500' :
                                     record?.status === 'permission' || record?.status === 'PERMISSION' ? 'bg-blue-500' : 'bg-gray-300';
+                            const isSelected = selectedStaff?.id === s.id;
                             return (
                                 <div
                                     key={s.id}
                                     onClick={() => setSelectedStaff(s)}
-                                    className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 flex items-center gap-3 relative ${selectedStaff?.id === s.id ? 'bg-blue-50 border-blue-200' : ''}`}
+                                    className={`p-4 border-b border-gray-100 cursor-pointer transition-colors hover:bg-gray-50 flex items-center justify-between gap-3 relative ${
+                                        isSelected ? 'bg-blue-50/80 border-l-4 border-l-blue-600' : ''
+                                    }`}
                                 >
-                                    <div className="relative shrink-0">
-                                        {s.profilePicUrl ? (
-                                            <img src={s.profilePicUrl} alt={s.name} className="w-10 h-10 rounded-full object-cover border border-gray-200" />
-                                        ) : (
-                                            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">
-                                                {s.name.charAt(0)}
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className="relative shrink-0">
+                                            {s.profilePicUrl ? (
+                                                <img src={s.profilePicUrl} alt={s.name} className="w-11 h-11 rounded-xl object-cover border border-gray-200" />
+                                            ) : (
+                                                <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-base shadow-xs">
+                                                    {s.name.charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                            <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${statusColor}`}></div>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="font-semibold text-gray-900 truncate text-sm">{s.name}</div>
+                                            <div className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                                                {s.phone ? (
+                                                    <span className="flex items-center gap-1"><Phone size={11} className="text-gray-400" /> {s.phone}</span>
+                                                ) : (
+                                                    <span className="italic text-gray-400">No phone</span>
+                                                )}
+                                                <span>•</span>
+                                                <span className="text-gray-600 font-medium">{s.role}</span>
                                             </div>
-                                        )}
-                                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${statusColor}`}></div>
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-semibold text-gray-900 truncate">{s.name}</div>
-                                        <div className="text-xs text-gray-500 flex items-center gap-1">
-                                            <Briefcase size={10} /> {s.role}
                                         </div>
                                     </div>
-                                    {selectedStaff?.id === s.id && <ChevronRight size={16} className="text-blue-400" />}
+                                    {isSelected && <ChevronRight size={18} className="text-blue-500 shrink-0" />}
                                 </div>
                             );
                         })
@@ -719,88 +734,120 @@ const DirectoryView = ({
             </div>
 
             {/* Right Panel: Details */}
-            <div className="w-2/3 flex flex-col gap-6 overflow-y-auto custom-scrollbar h-full">
+            <div className="w-2/3 flex flex-col gap-6 overflow-y-auto custom-scrollbar h-full pr-1">
                 {selectedStaff ? (
                     <>
-                        {/* Header & Details Card */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 shrink-0">
+                        {/* 1. Header & Details Card (Matching Customers Layout) */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 shrink-0">
                             <div className="flex justify-between items-start mb-6">
                                 <div className="flex items-center gap-4">
                                     {selectedStaff.profilePicUrl ? (
-                                        <img src={selectedStaff.profilePicUrl} alt={selectedStaff.name} className="w-16 h-16 rounded-full object-cover border-4 border-gray-50 shadow-sm" />
+                                        <img src={selectedStaff.profilePicUrl} alt={selectedStaff.name} className="w-16 h-16 rounded-2xl object-cover border-2 border-gray-100 shadow-sm" />
                                     ) : (
-                                        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-2xl shadow-sm">
-                                            {selectedStaff.name.charAt(0)}
+                                        <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-2xl flex items-center justify-center font-bold text-2xl shadow-sm">
+                                            {selectedStaff.name.charAt(0).toUpperCase()}
                                         </div>
                                     )}
                                     <div>
-                                        <h1 className="text-2xl font-bold text-gray-900">{selectedStaff.name}</h1>
-                                        <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold uppercase">{selectedStaff.role}</span>
-                                            <span>•</span>
-                                            <span>ID: {selectedStaff.id.substring(0, 6)}</span>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                                {selectedStaff.name}
+                                            </h1>
+                                            <span className="bg-blue-50 text-blue-700 border border-blue-200/80 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide">
+                                                {selectedStaff.role}
+                                            </span>
+                                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active
+                                            </span>
+                                        </div>
+                                        <div className="text-sm text-gray-500 mt-1">
+                                            Staff ID: <span className="font-mono font-medium text-gray-700">{selectedStaff.id.substring(0, 8)}</span>
                                         </div>
                                     </div>
                                 </div>
                                 {isAdmin && (
-                                    <div className="flex gap-2">
-                                        <button onClick={() => { setEditingStaff(selectedStaff); setShowModal(true); }} className="p-2 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors" title="Edit">
-                                            <Edit2 size={20} />
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => { setEditingStaff(selectedStaff); setShowModal(true); }}
+                                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                                            title="Edit Staff"
+                                        >
+                                            <Edit2 size={18} />
                                         </button>
-                                        <button onClick={() => onDelete(selectedStaff.id)} className="p-2 text-gray-500 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors" title="Delete">
-                                            {deletingId === selectedStaff.id ? <Loader2 size={20} className="animate-spin" /> : <Trash2 size={20} />}
+                                        <button
+                                            onClick={() => onDelete(selectedStaff.id)}
+                                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                            title="Delete Staff"
+                                        >
+                                            {deletingId === selectedStaff.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
                                         </button>
                                     </div>
                                 )}
                             </div>
 
-                            <div className={`grid grid-cols-1 ${isAdmin ? 'md:grid-cols-4' : 'md:grid-cols-2'} gap-4 pt-4 border-t border-gray-100`}>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-6 border-t border-gray-100">
                                 <div className="flex items-start gap-3">
-                                    <div className="p-2 bg-green-50 text-green-600 rounded-lg"><Phone size={18} /></div>
+                                    <div className="bg-blue-100 p-2.5 rounded-xl text-blue-600 mt-0.5 shrink-0"><Phone size={18} /></div>
                                     <div>
-                                        <div className="text-xs font-bold text-gray-400 uppercase">Contact</div>
-                                        <div className="text-sm font-semibold text-gray-800">{selectedStaff.phone}</div>
-                                        {selectedStaff.emergencyPhone && <div className="text-xs text-red-500 mt-0.5 font-medium">Emerg: {selectedStaff.emergencyPhone}</div>}
+                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Phone</div>
+                                        <div className="font-medium text-gray-900 text-sm mt-0.5">{selectedStaff.phone || 'N/A'}</div>
+                                        {selectedStaff.emergencyPhone && (
+                                            <div className="text-xs text-red-500 font-medium mt-0.5">Emerg: {selectedStaff.emergencyPhone}</div>
+                                        )}
                                     </div>
                                 </div>
-                                {isAdmin && (
-                                    <>
-                                        <div className="flex items-start gap-3">
-                                            <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><CreditCard size={18} /></div>
-                                            <div>
-                                                <div className="text-xs font-bold text-gray-400 uppercase">Bank Details</div>
-                                                <div className="text-xs text-gray-500">Acc: <span className="font-mono font-semibold text-gray-800">{selectedStaff.accountNumber || "N/A"}</span></div>
-                                                <div className="text-xs text-gray-500">IFSC: <span className="font-mono font-semibold text-gray-800">{selectedStaff.ifscCode || "N/A"}</span></div>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-start gap-3">
-                                            <div className="p-2 bg-orange-50 text-orange-600 rounded-lg"><DollarSign size={18} /></div>
-                                            <div>
-                                                <div className="text-xs font-bold text-gray-400 uppercase">Salary</div>
-                                                <div className="text-sm font-semibold text-gray-800">₹{selectedStaff.baseSalary?.toLocaleString() || 0}</div>
-                                                <div className="text-xs text-gray-500">Permit: {selectedStaff.allowedPermHours || 0} hrs/mo</div>
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
                                 <div className="flex items-start gap-3">
-                                    <div className="p-2 bg-yellow-50 text-yellow-600 rounded-lg"><Activity size={18} /></div>
+                                    <div className="bg-indigo-100 p-2.5 rounded-xl text-indigo-600 mt-0.5 shrink-0"><Briefcase size={18} /></div>
                                     <div>
-                                        <div className="text-xs font-bold text-gray-400 uppercase">Incentives</div>
-                                        <div className="text-sm font-bold text-green-600">₹{incentive.toLocaleString()}</div>
-                                        <div className="text-xs text-gray-400">This Month</div>
+                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Designation</div>
+                                        <div className="font-medium text-gray-900 text-sm mt-0.5">{selectedStaff.role || 'Staff'}</div>
+                                        <div className="text-xs text-gray-400 mt-0.5">FlipFlex Staff</div>
                                     </div>
                                 </div>
-
+                                <div className="flex items-start gap-3">
+                                    <div className="bg-purple-100 p-2.5 rounded-xl text-purple-600 mt-0.5 shrink-0"><CreditCard size={18} /></div>
+                                    <div>
+                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Bank Details</div>
+                                        <div className="font-medium text-gray-900 text-sm mt-0.5">Acc: <span className="font-mono">{selectedStaff.accountNumber || 'N/A'}</span></div>
+                                        <div className="text-xs text-gray-500 mt-0.5">IFSC: <span className="font-mono font-medium">{selectedStaff.ifscCode || 'N/A'}</span></div>
+                                    </div>
+                                </div>
+                                <div className="flex items-start gap-3">
+                                    <div className="bg-amber-100 p-2.5 rounded-xl text-amber-600 mt-0.5 shrink-0"><Clock size={18} /></div>
+                                    <div>
+                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Permitted Time</div>
+                                        <div className="font-medium text-gray-900 text-sm mt-0.5">{selectedStaff.allowedPermHours || 0} hrs / mo</div>
+                                        <div className="text-xs text-gray-400 mt-0.5">Monthly allowance</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Sub-tabs for Selected Staff */}
-                        <div className="flex space-x-2 bg-gray-100 p-1.5 rounded-xl self-start shrink-0">
+                        {/* 2. Stats Cards (Matching Customers 3-Card Row) */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 border-l-4 border-l-blue-500">
+                                <div className="text-gray-500 text-xs font-bold uppercase tracking-wider">Monthly Base Salary</div>
+                                <div className="text-2xl font-bold text-blue-700 mt-1">₹{(selectedStaff.baseSalary || 0).toLocaleString()}</div>
+                                <div className="text-xs text-gray-400 mt-1">Fixed compensation</div>
+                            </div>
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 border-l-4 border-l-green-500">
+                                <div className="text-gray-500 text-xs font-bold uppercase tracking-wider">This Month Incentives</div>
+                                <div className="text-2xl font-bold text-green-700 mt-1">₹{incentive.toLocaleString()}</div>
+                                <div className="text-xs text-gray-400 mt-1">Live sales commission</div>
+                            </div>
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 border-l-4 border-l-orange-500">
+                                <div className="text-gray-500 text-xs font-bold uppercase tracking-wider">Pending Payout</div>
+                                <div className="text-2xl font-bold text-orange-600 mt-1">₹{pendingTotal.toLocaleString()}</div>
+                                <div className="text-xs text-gray-400 mt-1">Unsettled commission balance</div>
+                            </div>
+                        </div>
+
+                        {/* 3. Sub-tabs for Selected Staff */}
+                        <div className="flex items-center gap-2 bg-gray-100/90 p-1.5 rounded-xl self-start shrink-0 border border-gray-200/60">
                             <button
                                 onClick={() => setStaffSubTab('attendance')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                    staffSubTab === 'attendance' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                    staffSubTab === 'attendance' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
                                 }`}
                             >
                                 <CalendarIcon size={14} /> Attendance & Commissions
@@ -808,7 +855,7 @@ const DirectoryView = ({
                             <button
                                 onClick={() => setStaffSubTab('targets')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                    staffSubTab === 'targets' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                    staffSubTab === 'targets' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
                                 }`}
                             >
                                 <Target size={14} className="text-blue-500" /> Sales Targets
@@ -816,7 +863,7 @@ const DirectoryView = ({
                             <button
                                 onClick={() => setStaffSubTab('tasks')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                    staffSubTab === 'tasks' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                    staffSubTab === 'tasks' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
                                 }`}
                             >
                                 <CheckSquare size={14} className="text-emerald-500" /> To-Do Tasks
@@ -825,239 +872,225 @@ const DirectoryView = ({
 
                         {staffSubTab === 'attendance' && (
                             <>
-                                {/* Today's Action & Stats */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
-
-                            {/* Today's Action Card */}
-                            <div className="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col justify-between">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                        <CheckingIcon /> Attendance
-                                    </h3>
-                                    <input
-                                        type="date"
-                                        value={date}
-                                        onChange={(e) => setDate(e.target.value)}
-                                        className="bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </div>
-                                <div className="flex gap-2">
-                                    {[
-                                        { type: 'PRESENT', label: 'Present', color: 'bg-green-100 text-green-700 hover:bg-green-200 border-green-200' },
-                                        { type: 'ABSENT', label: 'Absent', color: 'bg-red-100 text-red-700 hover:bg-red-200 border-red-200' },
-                                        { type: 'HALF_DAY', label: 'Half Day', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200' },
-                                        { type: 'PERMISSION', label: 'Permit', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200' },
-                                    ].map(opt => {
-                                        const record = attendanceMap[selectedStaff.id];
-                                        const isActive = record?.status === opt.type || (opt.type === 'PRESENT' && record?.status === 'FULL_DAY');
-                                        return (
-                                            <button
-                                                key={opt.type}
-                                                onClick={() => isAdmin && handleMarkClick(selectedStaff, opt.type)}
-                                                disabled={!isAdmin}
-                                                className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all ${isActive ? 'ring-2 ring-offset-1 ring-blue-500 shadow-md transform scale-[1.02]' : ''} ${opt.color} ${!isAdmin ? 'cursor-not-allowed opacity-75' : ''}`}
-                                                title={!isAdmin ? "Only Admin can mark staff attendance" : opt.label}
-                                            >
-                                                {opt.label}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                {attendanceMap[selectedStaff.id] && (
-                                    <div className="mt-3 text-xs text-center text-gray-500 bg-gray-50 py-1 rounded border border-gray-100">
-                                        Current Status: <span className="font-bold text-gray-800">{attendanceMap[selectedStaff.id].status}</span>
-                                        {attendanceMap[selectedStaff.id].inTime && <span className="ml-2">In: {attendanceMap[selectedStaff.id].inTime}</span>}
+                                {/* Today's Attendance Marking & Monthly Summary */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+                                    {/* Action Card */}
+                                    <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6 flex flex-col justify-between">
+                                        <div className="flex justify-between items-center mb-5">
+                                            <div>
+                                                <h3 className="font-bold text-gray-800 text-base flex items-center gap-2">
+                                                    <Clock size={18} className="text-blue-600" /> Daily Attendance Marking
+                                                </h3>
+                                                <p className="text-xs text-gray-400 mt-0.5">Mark attendance status for this date</p>
+                                            </div>
+                                            <input
+                                                type="date"
+                                                value={date}
+                                                onChange={(e) => setDate(e.target.value)}
+                                                className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                            {[
+                                                { type: 'PRESENT', label: 'Present', color: 'bg-green-50 text-green-700 hover:bg-green-100 border-green-200' },
+                                                { type: 'ABSENT', label: 'Absent', color: 'bg-red-50 text-red-700 hover:bg-red-100 border-red-200' },
+                                                { type: 'HALF_DAY', label: 'Half Day', color: 'bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200' },
+                                                { type: 'PERMISSION', label: 'Permit', color: 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200' },
+                                            ].map(opt => {
+                                                const record = attendanceMap[selectedStaff.id];
+                                                const isActive = record?.status === opt.type || (opt.type === 'PRESENT' && record?.status === 'FULL_DAY');
+                                                return (
+                                                    <button
+                                                        key={opt.type}
+                                                        onClick={() => isAdmin && handleMarkClick(selectedStaff, opt.type)}
+                                                        disabled={!isAdmin}
+                                                        className={`py-3 px-2 rounded-xl font-bold text-sm border transition-all text-center ${
+                                                            isActive ? 'ring-2 ring-offset-1 ring-blue-500 shadow-md transform scale-[1.02] bg-white' : ''
+                                                        } ${opt.color} ${!isAdmin ? 'cursor-not-allowed opacity-75' : ''}`}
+                                                        title={!isAdmin ? "Only Admin can mark staff attendance" : opt.label}
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {attendanceMap[selectedStaff.id] && (
+                                            <div className="mt-4 text-xs text-center text-gray-600 bg-gray-50 py-2 rounded-lg border border-gray-100 flex items-center justify-center gap-3">
+                                                <span>Status: <strong className="text-gray-900">{attendanceMap[selectedStaff.id].status}</strong></span>
+                                                {attendanceMap[selectedStaff.id].inTime && <span>• In: <strong className="text-gray-900">{attendanceMap[selectedStaff.id].inTime}</strong></span>}
+                                                {attendanceMap[selectedStaff.id].remarks && <span>• Note: <em>{attendanceMap[selectedStaff.id].remarks}</em></span>}
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
 
-                            {/* Stats Card */}
-                            <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl shadow-lg p-5 text-white flex flex-col justify-between relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4 opacity-10"><Activity size={60} /></div>
-                                <div>
-                                    <h4 className="text-blue-100 text-xs font-bold uppercase tracking-wider mb-1">{format(new Date(), 'MMMM')} Summary</h4>
-                                    <div className="flex justify-between items-end">
+                                    {/* Monthly Summary Card */}
+                                    <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl shadow-sm p-6 text-white flex flex-col justify-between relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 p-4 opacity-10"><Activity size={60} /></div>
                                         <div>
-                                            <div className="text-3xl font-bold">{stats.present}</div>
-                                            <div className="text-blue-200 text-xs">Present</div>
+                                            <h4 className="text-blue-100 text-xs font-bold uppercase tracking-wider mb-2">{format(new Date(), 'MMMM')} Summary</h4>
+                                            <div className="grid grid-cols-3 gap-2 text-center pt-2">
+                                                <div className="bg-white/10 rounded-xl py-2.5 px-1 backdrop-blur-xs">
+                                                    <div className="text-2xl font-bold">{stats.present}</div>
+                                                    <div className="text-blue-200 text-xs font-medium mt-0.5">Present</div>
+                                                </div>
+                                                <div className="bg-white/10 rounded-xl py-2.5 px-1 backdrop-blur-xs">
+                                                    <div className="text-2xl font-bold text-red-200">{stats.absent}</div>
+                                                    <div className="text-blue-200 text-xs font-medium mt-0.5">Absent</div>
+                                                </div>
+                                                <div className="bg-white/10 rounded-xl py-2.5 px-1 backdrop-blur-xs">
+                                                    <div className="text-2xl font-bold text-amber-200">{stats.perms}</div>
+                                                    <div className="text-blue-200 text-xs font-medium mt-0.5">Permits</div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="text-right">
-                                            <div className="text-xl font-bold text-red-200">{stats.absent}</div>
-                                            <div className="text-blue-200 text-xs">Absent</div>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-xl font-bold text-orange-200">{stats.perms}</div>
-                                            <div className="text-blue-200 text-xs">Permits</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => { setShowCalendarModal(true); }}
-                                    className="mt-4 w-full py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                                >
-                                    <CalendarIcon size={14} /> View Full Calendar
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Commission Ledger View */}
-                        <div className="flex flex-col gap-4 w-full">
-                            {/* Summary Cards */}
-                            <div className="grid grid-cols-2 gap-4 shrink-0">
-                                <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-orange-500 flex justify-between items-center">
-                                    <div>
-                                        <div className="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Pending Payout</div>
-                                        <div className="text-2xl font-bold text-orange-600 mt-1">₹{filteredCommissions.filter(c => c.status === 'UNPAID').reduce((sum, c) => sum + (Number(c.amount) || 0), 0).toLocaleString()}</div>
-                                    </div>
-                                    <div className="p-3 bg-orange-50 rounded-full text-orange-500">
-                                        <Clock size={24} />
-                                    </div>
-                                </div>
-                                <div className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-green-500 flex justify-between items-center">
-                                    <div>
-                                        <div className="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Paid Payout</div>
-                                        <div className="text-2xl font-bold text-green-600 mt-1">₹{filteredCommissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + (Number(c.amount) || 0), 0).toLocaleString()}</div>
-                                    </div>
-                                    <div className="p-3 bg-green-50 rounded-full text-green-500">
-                                        <CheckCircle size={24} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col min-h-[500px]">
-                                <div className="border-b bg-gray-50 px-4 py-3 border-gray-200 flex justify-between items-center gap-4">
-                                    <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2 whitespace-nowrap">
-                                        <CreditCard size={16} className="text-blue-600" /> Commission Ledger
-                                    </h3>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <div className="flex items-center gap-1 border rounded-lg bg-white px-2 py-1">
-                                            <input
-                                                type="date"
-                                                value={startDate}
-                                                onChange={(e) => setStartDate(e.target.value)}
-                                                className="text-xs outline-none bg-transparent"
-                                            />
-                                            <span className="text-gray-400 text-xs whitespace-nowrap">to</span>
-                                            <input
-                                                type="date"
-                                                value={endDate}
-                                                onChange={(e) => setEndDate(e.target.value)}
-                                                className="text-xs outline-none bg-transparent"
-                                            />
-                                        </div>
-                                        {(startDate || endDate) && (
-                                            <button
-                                                onClick={() => { setStartDate(''); setEndDate(''); }}
-                                                className="text-xs text-red-500 hover:text-red-700 font-medium px-1"
-                                            >
-                                                Clear
-                                            </button>
-                                        )}
+                                        <button
+                                            onClick={() => { setShowCalendarModal(true); }}
+                                            className="mt-4 w-full py-2.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <CalendarIcon size={16} /> View Full Calendar
+                                        </button>
                                     </div>
                                 </div>
 
-                                <div className="w-full">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead className="bg-gray-50 sticky top-0 z-10">
-                                            <tr>
-                                                <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
-                                                <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Bill ID</th>
-                                                <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider text-right">Amount</th>
-                                                <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider text-center">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
-                                            {commissionsLoading ? (
-                                                <tr><td colSpan={4} className="p-8 text-center text-gray-400"><Loader2 className="animate-spin mx-auto" /></td></tr>
-                                            ) : filteredCommissions.length === 0 ? (
-                                                <tr><td colSpan={4} className="p-8 text-center text-gray-400">No commission history found.</td></tr>
-                                            ) : (
-                                                filteredCommissions.map((comm) => (
-                                                    <tr key={comm.id} className="hover:bg-gray-50 transition-colors">
-                                                        <td className="p-4 text-sm font-medium text-gray-900">
-                                                            {new Date(comm.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                                            <div className="text-xs text-gray-400">{new Date(comm.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
-                                                        </td>
-                                                        <td className="p-4 text-sm font-mono text-blue-600">{comm.billId}</td>
-                                                        <td className="p-4 text-sm font-bold text-right">₹{(Number(comm.amount) || 0).toFixed(2)}</td>
-                                                        <td className="p-4 text-center">
-                                                            <button
-                                                                onClick={() => isAdmin && handleStatusToggle(comm)}
-                                                                disabled={!isAdmin}
-                                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-transform ${
-                                                                    isAdmin ? 'cursor-pointer active:scale-95' : 'cursor-default opacity-85'
-                                                                } ${
-                                                                    comm.status === 'PAID' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                                                                }`}
-                                                                title={isAdmin ? "Click to toggle status" : "Only Admin can manage commission status"}
-                                                            >
-                                                                {comm.status === 'PAID' ? <CheckCircle size={12} /> : <Clock size={12} />}
-                                                                {comm.status}
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))
+                                {/* Commission Ledger Card (Matching Purchase History in Customers) */}
+                                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col min-h-[400px] overflow-hidden">
+                                    <div className="p-4 border-b bg-gray-50 flex justify-between items-center gap-4">
+                                        <h3 className="font-bold text-gray-800 flex items-center gap-2 whitespace-nowrap">
+                                            <CreditCard size={18} className="text-blue-600" /> Commission Ledger
+                                        </h3>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <div className="flex items-center gap-1 border border-gray-200 rounded-lg bg-white px-2 py-1">
+                                                <input
+                                                    type="date"
+                                                    value={startDate}
+                                                    onChange={(e) => setStartDate(e.target.value)}
+                                                    className="text-xs outline-none bg-transparent"
+                                                />
+                                                <span className="text-gray-400 text-xs">to</span>
+                                                <input
+                                                    type="date"
+                                                    value={endDate}
+                                                    onChange={(e) => setEndDate(e.target.value)}
+                                                    className="text-xs outline-none bg-transparent"
+                                                />
+                                            </div>
+                                            {(startDate || endDate) && (
+                                                <button
+                                                    onClick={() => { setStartDate(''); setEndDate(''); }}
+                                                    className="text-xs text-red-500 hover:text-red-700 font-semibold px-2 py-1"
+                                                >
+                                                    Clear
+                                                </button>
                                             )}
-                                        </tbody>
-                                        {/* Footer Summaries */}
-                                        {!commissionsLoading && filteredCommissions.length > 0 && (
-                                            <tfoot className="bg-gray-50 font-bold text-sm">
+                                        </div>
+                                    </div>
+
+                                    <div className="w-full overflow-x-auto">
+                                        <table className="w-full text-left border-collapse">
+                                            <thead className="bg-gray-50/70 border-b border-gray-100">
                                                 <tr>
-                                                    <td colSpan={2} className="p-4 text-right">Total Pending:</td>
-                                                    <td className="p-4 text-right text-orange-600">
-                                                        ₹{(filteredCommissions.filter(c => c.status === 'UNPAID').reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || 0).toFixed(2)}
-                                                    </td>
-                                                    <td className="p-4"></td>
+                                                    <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
+                                                    <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Bill ID</th>
+                                                    <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider text-right">Amount</th>
+                                                    <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider text-center">Status</th>
                                                 </tr>
-                                                <tr>
-                                                    <td colSpan={2} className="p-4 text-right border-t border-gray-200">Total Paid:</td>
-                                                    <td className="p-4 text-right text-green-600 border-t border-gray-200">
-                                                        ₹{(filteredCommissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || 0).toFixed(2)}
-                                                    </td>
-                                                    <td className="p-4 border-t border-gray-200"></td>
-                                                </tr>
-                                            </tfoot>
-                                        )}
-                                    </table>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {commissionsLoading ? (
+                                                    <tr><td colSpan={4} className="p-8 text-center text-gray-400"><Loader2 className="animate-spin mx-auto mb-2" /> Loading ledger...</td></tr>
+                                                ) : filteredCommissions.length === 0 ? (
+                                                    <tr><td colSpan={4} className="p-8 text-center text-gray-400">No commission history found.</td></tr>
+                                                ) : (
+                                                    filteredCommissions.map((comm) => (
+                                                        <tr key={comm.id} className="hover:bg-gray-50/80 transition-colors">
+                                                            <td className="p-4 text-sm font-medium text-gray-900">
+                                                                {new Date(comm.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                                <div className="text-xs text-gray-400">{new Date(comm.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+                                                            </td>
+                                                            <td className="p-4 text-sm font-mono text-blue-600 font-medium">{comm.billId}</td>
+                                                            <td className="p-4 text-sm font-bold text-right text-gray-900">₹{(Number(comm.amount) || 0).toFixed(2)}</td>
+                                                            <td className="p-4 text-center">
+                                                                <button
+                                                                    onClick={() => isAdmin && handleStatusToggle(comm)}
+                                                                    disabled={!isAdmin}
+                                                                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                                                        isAdmin ? 'cursor-pointer active:scale-95 shadow-xs' : 'cursor-default opacity-85'
+                                                                    } ${
+                                                                        comm.status === 'PAID' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                                                                    }`}
+                                                                    title={isAdmin ? "Click to toggle status" : "Only Admin can manage commission status"}
+                                                                >
+                                                                    {comm.status === 'PAID' ? <CheckCircle size={12} /> : <Clock size={12} />}
+                                                                    {comm.status}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                            {/* Footer Summaries */}
+                                            {!commissionsLoading && filteredCommissions.length > 0 && (
+                                                <tfoot className="bg-gray-50/80 font-bold text-sm border-t border-gray-200">
+                                                    <tr>
+                                                        <td colSpan={2} className="p-4 text-right text-gray-600">Total Pending:</td>
+                                                        <td className="p-4 text-right text-orange-600 font-bold">
+                                                            ₹{(filteredCommissions.filter(c => c.status === 'UNPAID').reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || 0).toFixed(2)}
+                                                        </td>
+                                                        <td className="p-4"></td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td colSpan={2} className="p-4 text-right border-t border-gray-100 text-gray-600">Total Paid:</td>
+                                                        <td className="p-4 text-right text-green-600 border-t border-gray-100 font-bold">
+                                                            ₹{(filteredCommissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || 0).toFixed(2)}
+                                                        </td>
+                                                        <td className="p-4 border-t border-gray-100"></td>
+                                                    </tr>
+                                                </tfoot>
+                                            )}
+                                        </table>
+                                    </div>
                                 </div>
+                            </>
+                        )}
+
+                        {staffSubTab === 'targets' && (
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                                <StaffTargetsView
+                                    targets={targets}
+                                    staffList={staff}
+                                    selectedStaff={selectedStaff}
+                                    bills={bills}
+                                    isAdmin={isAdmin}
+                                    onOpenAddModal={() => onOpenAddTarget(selectedStaff.id)}
+                                    onEditTarget={onEditTarget}
+                                    onRefresh={onRefreshTargets}
+                                />
                             </div>
-                        </div>
-                        </>
-                    )}
+                        )}
 
-                    {staffSubTab === 'targets' && (
-                        <StaffTargetsView
-                            targets={targets}
-                            staffList={staff}
-                            selectedStaff={selectedStaff}
-                            bills={bills}
-                            isAdmin={isAdmin}
-                            onOpenAddModal={() => onOpenAddTarget(selectedStaff.id)}
-                            onEditTarget={onEditTarget}
-                            onRefresh={onRefreshTargets}
-                        />
-                    )}
-
-                    {staffSubTab === 'tasks' && (
-                        <StaffTasksView
-                            tasks={tasks}
-                            staffList={staff}
-                            selectedStaff={selectedStaff}
-                            isAdmin={isAdmin}
-                            onOpenAddModal={() => onOpenAddTask(selectedStaff.id)}
-                            onEditTask={onEditTask}
-                            onRefresh={onRefreshTasks}
-                        />
-                    )}
+                        {staffSubTab === 'tasks' && (
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                                <StaffTasksView
+                                    tasks={tasks}
+                                    staffList={staff}
+                                    selectedStaff={selectedStaff}
+                                    isAdmin={isAdmin}
+                                    onOpenAddModal={() => onOpenAddTask(selectedStaff.id)}
+                                    onEditTask={onEditTask}
+                                    onRefresh={onRefreshTasks}
+                                />
+                            </div>
+                        )}
                     </>
-
                 ) : (
-                    <div className="flex-grow flex flex-col items-center justify-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-                        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                            <Users size={40} className="text-gray-300" />
+                    <div className="h-full flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-200 p-12 text-center">
+                        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-xs">
+                            <Users size={32} />
                         </div>
-                        <h3 className="text-lg font-medium text-gray-600">No Staff Selected</h3>
-                        <p className="text-gray-400 max-w-xs text-center mt-2">Select a staff member from the directory to view details, manage attendance, and see history.</p>
+                        <h3 className="text-lg font-bold text-gray-800">No Staff Selected</h3>
+                        <p className="text-gray-400 text-sm max-w-sm mt-1">
+                            Choose an employee from the directory on the left to view profile details, track attendance, and process payroll.
+                        </p>
                     </div>
                 )}
             </div>

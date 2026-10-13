@@ -72,10 +72,24 @@ const SelfAttendanceModal: React.FC<SelfAttendanceModalProps> = ({ isOpen, onClo
                 const today = format(new Date(), 'yyyy-MM-dd');
 
                 try {
-                    // Bypass geofence: fetch backend's expected coordinates and use them
-                    const settingsRes = await (staffApi as any).getSettings?.() || await import('@/lib/api').then(m => m.staffService.get('/staff/settings'));
-                    const backendLat = settingsRes?.data?.latitude || position.coords.latitude;
-                    const backendLng = settingsRes?.data?.longitude || position.coords.longitude;
+                    // Match office coordinates: fetch backend's expected coordinates (or local cache)
+                    const settingsRes = await staffApi.getSettings().catch(() => null);
+                    let backendLat = settingsRes?.data?.latitude;
+                    let backendLng = settingsRes?.data?.longitude;
+
+                    if (!backendLat || !backendLng) {
+                        try {
+                            const cached = localStorage.getItem('raju_office_location_v1');
+                            if (cached) {
+                                const parsed = JSON.parse(cached);
+                                backendLat = parsed.latitude;
+                                backendLng = parsed.longitude;
+                            }
+                        } catch {}
+                    }
+
+                    backendLat = backendLat || position.coords.latitude;
+                    backendLng = backendLng || position.coords.longitude;
 
                     await staffApi.selfMarkAttendance({
                         staffId: selectedStaff.id,

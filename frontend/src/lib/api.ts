@@ -178,6 +178,35 @@ export const staffApi = {
   selfMarkAttendance: (data: { staffId: string; date: string; latitude: number; longitude: number }) =>
     staffService.post('/staff/attendance/self-mark', data),
 
+  // App Settings (Geofence, Cutoff, with persistent storage fallback)
+  getSettings: async () => {
+    try {
+      const res = await staffService.get<AppSettings>('/staff/settings');
+      if (res.data && (res.data.latitude || res.data.longitude)) {
+        try {
+          localStorage.setItem('raju_office_location_v1', JSON.stringify(res.data));
+        } catch {}
+      }
+      return res;
+    } catch (err) {
+      const cached = localStorage.getItem('raju_office_location_v1');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          return { data: parsed } as any;
+        } catch {}
+      }
+      throw err;
+    }
+  },
+
+  saveSettings: async (data: AppSettings) => {
+    try {
+      localStorage.setItem('raju_office_location_v1', JSON.stringify(data));
+    } catch {}
+    return staffService.post('/staff/settings', data);
+  },
+
   // Targets (Admin can create/edit/delete, everyone can view)
   getAllTargets: () => staffService.get<StaffTarget[]>('/staff/targets'),
   getTargetsByStaff: (staffId: string) => staffService.get<StaffTarget[]>(`/staff/targets/staff/${staffId}`),
@@ -194,6 +223,15 @@ export const staffApi = {
   updateTask: (id: string, data: Partial<StaffTask>) => staffService.put(`/staff/tasks/${id}`, data),
   deleteTask: (id: string) => staffService.delete(`/staff/tasks/${id}`),
 };
+
+export interface AppSettings {
+  id?: string;
+  locationName: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  halfDayCutoffTime: string;
+}
 
 export interface StaffTarget {
   id?: string;

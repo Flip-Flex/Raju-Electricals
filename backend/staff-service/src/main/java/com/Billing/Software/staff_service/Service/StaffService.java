@@ -436,20 +436,48 @@ public class StaffService {
             return AppSettings.builder()
                     .id("default_location")
                     .locationName("Main Office")
-                    .latitude(0.0)
-                    .longitude(0.0)
-                    .radiusMeters(500)
+                    .latitude(12.844477)
+                    .longitude(79.698623)
+                    .radiusMeters(50)
                     .halfDayCutoffTime("10:30")
                     .build();
         }
         AppSettings settings = doc.toObject(AppSettings.class);
-        if (settings != null) settings.setId("default_location");
+        if (settings != null) {
+            settings.setId("default_location");
+            // If stored settings had 0,0, provide sensible store defaults
+            if (settings.getLatitude() == 0 && settings.getLongitude() == 0) {
+                settings.setLatitude(12.844477);
+                settings.setLongitude(79.698623);
+                if (settings.getRadiusMeters() <= 0) settings.setRadiusMeters(50);
+            }
+        }
         return settings;
     }
 
     @CacheEvict(value = "staff", allEntries = true)
     public void saveAppSettings(AppSettings settings) throws Exception {
         settings.setId("default_location");
+        // Prevent accidental wipe of coordinates to 0,0 if valid coordinates already existed
+        if (settings.getLatitude() == 0 && settings.getLongitude() == 0) {
+            DocumentSnapshot existing = firestore.collection(COL_APP_SETTINGS).document("default_location").get().get();
+            if (existing.exists()) {
+                AppSettings prev = existing.toObject(AppSettings.class);
+                if (prev != null && (prev.getLatitude() != 0 || prev.getLongitude() != 0)) {
+                    settings.setLatitude(prev.getLatitude());
+                    settings.setLongitude(prev.getLongitude());
+                    if (settings.getLocationName() == null || settings.getLocationName().trim().isEmpty()) {
+                        settings.setLocationName(prev.getLocationName());
+                    }
+                }
+            }
+        }
+        if (settings.getRadiusMeters() <= 0) {
+            settings.setRadiusMeters(50);
+        }
+        if (settings.getHalfDayCutoffTime() == null || settings.getHalfDayCutoffTime().trim().isEmpty()) {
+            settings.setHalfDayCutoffTime("10:30");
+        }
         firestore.collection(COL_APP_SETTINGS).document("default_location").set(settings).get();
     }
 
