@@ -1080,8 +1080,7 @@ const Products = () => {
                         <th className="p-4">Purchase price</th>
                       </>
                     )}
-                    <th className="p-4">Retail price</th>
-                    <th className="p-4">Wholesale price</th>
+                    <th className="p-4">Selling Price</th>
                     {!isCashier && <th className="p-4">GST</th>}
                     <th className="p-4">Stock</th>{!isCashier && <th className="p-4 sticky right-0 bg-gray-50 z-10 border-l border-gray-200 shadow-[-4px_0_10px_rgba(0,0,0,0.05)]">Action</th>}
                   </tr>
@@ -1180,17 +1179,7 @@ const Products = () => {
                               type="number"
                               value={editForm.price}
                               onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
-                              className="border rounded p-1 w-20 text-sm"
-                            />
-                          </td>
-
-                          {/* Wholesale Price */}
-                          <td className="p-4">
-                            <input
-                              type="number"
-                              value={editForm.wholesalePrice}
-                              onChange={(e) => setEditForm({ ...editForm, wholesalePrice: e.target.value })}
-                              className="border rounded p-1 w-20 text-sm font-semibold text-blue-600"
+                              className="border rounded p-1 w-20 text-sm font-semibold"
                             />
                           </td>
 
@@ -1261,8 +1250,7 @@ const Products = () => {
                             <td className="p-4">₹{product.purchaseRate.toFixed(2)}</td>
                           </>
                         )}
-                        <td className="p-4">₹{product.price.toFixed(2)}</td>
-                        <td className="p-4 font-semibold text-blue-600">₹{(product.wholesaleSellingPrice || product.price).toFixed(2)}</td>
+                        <td className="p-4 font-semibold">₹{product.price.toFixed(2)}</td>
                         {!isCashier && <td className="p-4">{product.purchaseGst}%</td>}
                         <td className="p-4 font-bold">{formatQty(product.stockQuantity)}</td>
                         {!isCashier && (
@@ -1460,12 +1448,8 @@ const ProductFormModal = ({ product, categories, vendors, onSave, onClose, defau
               <input ref={profitRef} name="profit" type="number" value={formData.profit} onChange={handleChange} onKeyDown={(e) => handleEnter(e, sellingPriceRef)} className="form-input mt-1" placeholder="0.00" />
             </div>
             <div>
-              <label>Retail Selling Price (₹)</label>
-              <input ref={sellingPriceRef} name="price" type="number" value={formData.price} onChange={handleChange} onKeyDown={(e) => handleEnter(e, wholesalePriceRef)} className="form-input mt-1" />
-            </div>
-            <div>
-              <label>Wholesale Selling Price (₹)</label>
-              <input ref={wholesalePriceRef} name="wholesalePrice" type="number" value={formData.wholesalePrice} onChange={handleChange} onKeyDown={(e) => handleEnter(e, stockRef)} className="form-input mt-1 font-semibold text-blue-600" />
+              <label>Selling Price (₹)</label>
+              <input ref={sellingPriceRef} name="price" type="number" value={formData.price} onChange={handleChange} onKeyDown={(e) => handleEnter(e, stockRef)} className="form-input mt-1 font-semibold" />
             </div>
           </div>
 

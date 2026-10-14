@@ -5,7 +5,7 @@ import {
     CheckCircle, XCircle, Clock, ChevronLeft, ChevronRight, Loader2,
 
     FileText, UploadCloud, DollarSign, Timer, Users, Briefcase, CreditCard, Shield, Activity,
-    UserCheck, Save, Edit3, Target, CheckSquare
+    UserCheck, Save, Edit3, Target, CheckSquare, Lock, Eye, EyeOff
 } from 'lucide-react';
 import { staffApi, Staff, Attendance, Role, Commission, billingApi, StaffTarget, StaffTask } from '@/lib/api';
 import {
@@ -26,12 +26,15 @@ import { storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useAuth } from '@/context/AuthContext';
+import { useLocation } from 'react-router-dom';
 
 const StaffManagement = () => {
     const { user } = useAuth();
-    const isAdmin = user?.role?.toLowerCase() === 'admin';
+    const location = useLocation();
+    const isCashierRoute = location.pathname.startsWith('/cashier');
+    const isAdmin = user?.role?.toLowerCase() === 'admin' && !isCashierRoute;
     const [activeTab, setActiveTab] = useState<'directory' | 'targets' | 'tasks' | 'salary'>('directory');
-    const { staff: staffList, loading: staffLoading, refreshStaff, isSyncing, bills = [] } = useGlobalData();
+    const { staff: staffList, loading: staffLoading, refreshStaff, mutateStaff, isSyncing, bills = [] } = useGlobalData();
     const [searchTerm, setSearchTerm] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const { confirm: confirmAction, ConfirmationDialog } = useConfirm();
@@ -45,6 +48,7 @@ const StaffManagement = () => {
     const [taskModalOpen, setTaskModalOpen] = useState(false);
     const [editingTarget, setEditingTarget] = useState<StaffTarget | null>(null);
     const [editingTask, setEditingTask] = useState<StaffTask | null>(null);
+    const [modalStaffId, setModalStaffId] = useState<string>('');
 
     const fetchTargets = async () => {
         setTargetsLoading(true);
@@ -95,6 +99,9 @@ const StaffManagement = () => {
             try {
                 await staffApi.delete(id);
                 toast.success("Staff deleted successfully");
+                if (mutateStaff) {
+                    mutateStaff((prev: Staff[]) => prev.filter(s => s.id !== id));
+                }
                 refreshStaff();
             } catch (error) {
                 toast.error("Failed to delete staff");
@@ -105,21 +112,30 @@ const StaffManagement = () => {
     };
 
     return (
-        <div className="p-6 h-full bg-slate-50 flex flex-col max-h-screen overflow-hidden">
+        <div className="h-[calc(100vh-125px)] flex flex-col overflow-hidden">
             <ConfirmationDialog />
             {/* Header */}
-            <div className="flex justify-between items-center mb-6 flex-shrink-0">
+            <div className="flex justify-between items-center mb-3.5 flex-shrink-0">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
-                        <Users className="text-blue-600" />
-                        Staff Management
+                    <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2.5">
+                        <Users className="text-blue-600" size={22} />
+                        <span>Staff Management</span>
+                        {!isAdmin && (
+                            <span className="text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                <Shield size={12} className="text-slate-400" /> View Only
+                            </span>
+                        )}
                     </h1>
-                    <p className="text-sm text-gray-500 mt-1">Manage employees, track attendance, and process payroll</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                        {isAdmin
+                            ? 'Manage employees, track attendance, and process payroll'
+                            : 'View employee profiles, bank details, attendance history, and targets (read-only)'}
+                    </p>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                     <SyncIndicator isSyncing={isSyncing} />
-                    <div className="flex space-x-1 bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
+                    <div className="flex space-x-1 bg-white p-1 rounded-xl shadow-2xs border border-gray-200">
                         <TabButton active={activeTab === 'directory'} onClick={() => setActiveTab('directory')} icon={Briefcase} label="Directory" />
                         <TabButton active={activeTab === 'targets'} onClick={() => setActiveTab('targets')} icon={Target} label="Targets" />
                         <TabButton active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={CheckSquare} label="To-Do Tasks" />
@@ -139,6 +155,7 @@ const StaffManagement = () => {
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
                         onRefresh={refreshStaff}
+                        mutateStaff={mutateStaff}
                         onDelete={handleDelete}
                         deletingId={deletingId}
                         confirmAction={confirmAction}
@@ -146,16 +163,16 @@ const StaffManagement = () => {
                         targets={targets}
                         tasks={tasks}
                         bills={bills}
-                        onOpenAddTarget={(staffId?: string) => { setEditingTarget(null); setTargetModalOpen(true); }}
+                        onOpenAddTarget={(staffId?: string) => { setModalStaffId(staffId || ''); setEditingTarget(null); setTargetModalOpen(true); }}
                         onEditTarget={(t: any) => { setEditingTarget(t); setTargetModalOpen(true); }}
-                        onOpenAddTask={(staffId?: string) => { setEditingTask(null); setTaskModalOpen(true); }}
+                        onOpenAddTask={(staffId?: string) => { setModalStaffId(staffId || ''); setEditingTask(null); setTaskModalOpen(true); }}
                         onEditTask={(t: any) => { setEditingTask(t); setTaskModalOpen(true); }}
                         onRefreshTargets={fetchTargets}
                         onRefreshTasks={fetchTasks}
                     />
                 </div>
             ) : (
-                <div className="flex-1 overflow-auto bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative">
+                <div className="flex-1 overflow-auto bg-white rounded-xl shadow-xs border border-gray-200 p-4 relative">
                     {activeTab === 'targets' && (
                         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 h-full">
                             <StaffTargetsView
@@ -194,8 +211,9 @@ const StaffManagement = () => {
             {/* Target Modal (Admin Only) */}
             <StaffTargetModal
                 isOpen={targetModalOpen}
-                onClose={() => { setTargetModalOpen(false); setEditingTarget(null); }}
+                onClose={() => { setTargetModalOpen(false); setEditingTarget(null); setModalStaffId(''); }}
                 staffList={staffList}
+                selectedStaffId={modalStaffId || undefined}
                 initialTarget={editingTarget}
                 onSuccess={fetchTargets}
             />
@@ -203,8 +221,9 @@ const StaffManagement = () => {
             {/* Task Modal (Admin Only) */}
             <StaffTaskModal
                 isOpen={taskModalOpen}
-                onClose={() => { setTaskModalOpen(false); setEditingTask(null); }}
+                onClose={() => { setTaskModalOpen(false); setEditingTask(null); setModalStaffId(''); }}
                 staffList={staffList}
+                selectedStaffId={modalStaffId || undefined}
                 initialTask={editingTask}
                 onSuccess={fetchTasks}
             />
@@ -216,12 +235,12 @@ const StaffManagement = () => {
 const TabButton = ({ active, onClick, icon: Icon, label }: any) => (
     <button
         onClick={onClick}
-        className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${active
-            ? 'bg-blue-600 text-white shadow-md transform scale-105'
+        className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${active
+            ? 'bg-blue-600 text-white shadow-xs'
             : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
             }`}
     >
-        <Icon size={16} />
+        <Icon size={14} />
         <span>{label}</span>
     </button>
 );
@@ -354,7 +373,7 @@ const MarkAttendanceDialog = ({ staff, date, currentStatus, onClose, onSuccess }
 
 // --- DIRECTORY VIEW (Split Pane Layout) ---
 const DirectoryView = ({
-    staff, loading, searchTerm, setSearchTerm, onRefresh, onDelete, deletingId, confirmAction, isAdmin,
+    staff, loading, searchTerm, setSearchTerm, onRefresh, mutateStaff, onDelete, deletingId, confirmAction, isAdmin,
     targets = [], tasks = [], bills = [], onOpenAddTarget, onEditTarget, onOpenAddTask, onEditTask, onRefreshTargets, onRefreshTasks
 }: any) => {
     const [staffSubTab, setStaffSubTab] = useState<'attendance' | 'targets' | 'tasks'>('attendance');
@@ -363,6 +382,35 @@ const DirectoryView = ({
     const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
     const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
     const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+    // Local staff list for instantaneous zero-lag UI updates on add & edit
+    const [localStaffList, setLocalStaffList] = useState<Staff[]>(Array.isArray(staff) ? staff : []);
+
+    useEffect(() => {
+        if (Array.isArray(staff)) {
+            setLocalStaffList(staff);
+        }
+    }, [staff]);
+
+    // Keep selectedStaff up-to-date with any edits in localStaffList
+    useEffect(() => {
+        if (!selectedStaff && localStaffList.length > 0) {
+            setSelectedStaff(localStaffList[0]);
+        } else if (selectedStaff && localStaffList.length > 0) {
+            const fresh = localStaffList.find((s: Staff) => s.id === selectedStaff.id);
+            if (fresh) {
+                if (
+                    fresh.appUsername !== selectedStaff.appUsername ||
+                    fresh.appPassword !== selectedStaff.appPassword ||
+                    fresh.name !== selectedStaff.name ||
+                    fresh.phone !== selectedStaff.phone ||
+                    fresh.role !== selectedStaff.role
+                ) {
+                    setSelectedStaff(fresh);
+                }
+            }
+        }
+    }, [localStaffList]);
 
 
     // Payment Modal State
@@ -627,9 +675,10 @@ const DirectoryView = ({
 
 
     // --- FILTERING ---
-    const filteredStaff = staff.filter((s: Staff) =>
+    const filteredStaff = localStaffList.filter((s: Staff) =>
         s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.phone.includes(searchTerm)
+        s.phone.includes(searchTerm) ||
+        (s.appUsername && s.appUsername.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
     // Derived Stats
@@ -642,7 +691,7 @@ const DirectoryView = ({
     const stats = getStats();
 
     return (
-        <div className="flex h-full gap-6">
+        <div className="flex h-full gap-4 min-h-0 overflow-hidden">
             <ConfirmPaymentModal
                 isOpen={paymentModalReq.isOpen}
                 onClose={() => setPaymentModalReq({ isOpen: false, commission: null })}
@@ -650,42 +699,45 @@ const DirectoryView = ({
                 message={`Mark ${paymentModalReq.commission?.billId || 'commission'} as PAID?`}
             />
             {/* Left Panel: List */}
-            <div className="w-1/3 bg-white rounded-2xl shadow-sm flex flex-col border border-gray-200 overflow-hidden">
-                <div className="p-5 border-b bg-gray-50/70">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                            <Users className="text-blue-600" size={20} /> Staff Directory
-                            <span className="text-xs bg-blue-100/80 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+            <div className="w-80 lg:w-84 xl:w-92 shrink-0 bg-white rounded-xl shadow-xs flex flex-col border border-gray-200 overflow-hidden">
+                <div className="p-3.5 border-b bg-gray-50/70">
+                    <div className="flex justify-between items-center mb-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5 truncate">
+                                <Users className="text-blue-600 shrink-0" size={17} />
+                                <span>Staff Directory</span>
+                            </h2>
+                            <span className="text-[11px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full shrink-0">
                                 {filteredStaff.length}
                             </span>
-                        </h2>
+                        </div>
                         {isAdmin && (
                             <button
                                 onClick={() => { setEditingStaff(null); setShowModal(true); }}
-                                className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-700 shadow-sm transition-colors"
+                                className="bg-blue-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-blue-700 shadow-xs transition-all flex items-center gap-1 text-xs font-semibold shrink-0 active:scale-95"
                                 title="Add Staff"
                             >
-                                <Plus size={18} />
+                                <Plus size={14} /> Add Staff
                             </button>
                         )}
                     </div>
                     <div className="relative">
-                        <Search className="absolute left-3.5 top-3 text-gray-400" size={17} />
+                        <Search className="absolute left-3 top-2.5 text-gray-400" size={14} />
                         <input
                             type="text"
                             placeholder="Search Name, Phone, Role..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl w-full focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-sm"
+                            className="pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-xs"
                         />
                     </div>
                 </div>
 
                 <div className="overflow-y-auto flex-grow custom-scrollbar">
                     {loading && staff.length === 0 ? (
-                        <div className="p-8 text-center text-gray-500"><Loader2 className="animate-spin mx-auto mb-2" /> Loading staff...</div>
+                        <div className="p-8 text-center text-gray-500 text-xs"><Loader2 className="animate-spin mx-auto mb-2" size={18} /> Loading staff...</div>
                     ) : filteredStaff.length === 0 ? (
-                        <div className="p-8 text-center text-gray-500">No staff found.</div>
+                        <div className="p-8 text-center text-gray-500 text-xs">No staff found.</div>
                     ) : (
                         filteredStaff.map(s => {
                             const record = attendanceMap[s.id];
@@ -697,35 +749,51 @@ const DirectoryView = ({
                                 <div
                                     key={s.id}
                                     onClick={() => setSelectedStaff(s)}
-                                    className={`p-4 border-b border-gray-100 cursor-pointer transition-colors hover:bg-gray-50 flex items-center justify-between gap-3 relative ${
-                                        isSelected ? 'bg-blue-50/80 border-l-4 border-l-blue-600' : ''
+                                    className={`p-2.5 border-b border-gray-100 cursor-pointer transition-colors hover:bg-gray-50 flex items-center justify-between gap-2.5 relative ${
+                                        isSelected ? 'bg-blue-50/70 border-l-3 border-l-blue-600' : ''
                                     }`}
                                 >
-                                    <div className="flex items-center gap-3 min-w-0">
+                                    <div className="flex items-center gap-2.5 min-w-0">
                                         <div className="relative shrink-0">
                                             {s.profilePicUrl ? (
-                                                <img src={s.profilePicUrl} alt={s.name} className="w-11 h-11 rounded-xl object-cover border border-gray-200" />
+                                                <img src={s.profilePicUrl} alt={s.name} className="w-9 h-9 rounded-lg object-cover border border-gray-200" />
                                             ) : (
-                                                <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-base shadow-xs">
+                                                <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-lg flex items-center justify-center font-bold text-xs shadow-2xs">
                                                     {s.name.charAt(0).toUpperCase()}
                                                 </div>
                                             )}
-                                            <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${statusColor}`}></div>
+                                            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${statusColor}`}></div>
                                         </div>
                                         <div className="min-w-0">
-                                            <div className="font-semibold text-gray-900 truncate text-sm">{s.name}</div>
-                                            <div className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                                            <div className="font-semibold text-gray-900 truncate text-xs">{s.name}</div>
+                                            <div className="text-[11px] text-gray-500 flex items-center gap-1.5 mt-0.5">
                                                 {s.phone ? (
-                                                    <span className="flex items-center gap-1"><Phone size={11} className="text-gray-400" /> {s.phone}</span>
+                                                    <span className="flex items-center gap-1"><Phone size={10} className="text-gray-400" /> {s.phone}</span>
                                                 ) : (
                                                     <span className="italic text-gray-400">No phone</span>
                                                 )}
                                                 <span>•</span>
-                                                <span className="text-gray-600 font-medium">{s.role}</span>
+                                                <span className="text-gray-600 font-medium truncate">{s.role}</span>
                                             </div>
                                         </div>
                                     </div>
-                                    {isSelected && <ChevronRight size={18} className="text-blue-500 shrink-0" />}
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {isAdmin && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedStaff(s);
+                                                    setEditingStaff(s);
+                                                    setShowModal(true);
+                                                }}
+                                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                title="Edit Staff & Login Details"
+                                            >
+                                                <Edit2 size={13} />
+                                            </button>
+                                        )}
+                                        {isSelected && <ChevronRight size={15} className="text-blue-500" />}
+                                    </div>
                                 </div>
                             );
                         })
@@ -734,163 +802,173 @@ const DirectoryView = ({
             </div>
 
             {/* Right Panel: Details */}
-            <div className="w-2/3 flex flex-col gap-6 overflow-y-auto custom-scrollbar h-full pr-1">
+            <div className="flex-1 min-w-0 flex flex-col gap-3 overflow-y-auto custom-scrollbar h-full pr-1">
                 {selectedStaff ? (
                     <>
-                        {/* 1. Header & Details Card (Matching Customers Layout) */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 shrink-0">
-                            <div className="flex justify-between items-start mb-6">
-                                <div className="flex items-center gap-4">
+                        {/* 1. Header & Details Card */}
+                        <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-3.5 shrink-0">
+                            <div className="flex justify-between items-center mb-3">
+                                <div className="flex items-center gap-3 min-w-0">
                                     {selectedStaff.profilePicUrl ? (
-                                        <img src={selectedStaff.profilePicUrl} alt={selectedStaff.name} className="w-16 h-16 rounded-2xl object-cover border-2 border-gray-100 shadow-sm" />
+                                        <img src={selectedStaff.profilePicUrl} alt={selectedStaff.name} className="w-12 h-12 rounded-xl object-cover border border-gray-200 shadow-2xs shrink-0" />
                                     ) : (
-                                        <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-2xl flex items-center justify-center font-bold text-2xl shadow-sm">
+                                        <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-lg shadow-2xs shrink-0">
                                             {selectedStaff.name.charAt(0).toUpperCase()}
                                         </div>
                                     )}
-                                    <div>
+                                    <div className="min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
-                                            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                            <h2 className="text-lg font-bold text-gray-800 truncate">
                                                 {selectedStaff.name}
-                                            </h1>
-                                            <span className="bg-blue-50 text-blue-700 border border-blue-200/80 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide">
+                                            </h2>
+                                            <span className="bg-blue-50 text-blue-700 border border-blue-200/80 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider">
                                                 {selectedStaff.role}
                                             </span>
-                                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active
                                             </span>
                                         </div>
-                                        <div className="text-sm text-gray-500 mt-1">
+                                        <div className="text-xs text-gray-500 mt-0.5">
                                             Staff ID: <span className="font-mono font-medium text-gray-700">{selectedStaff.id.substring(0, 8)}</span>
                                         </div>
                                     </div>
                                 </div>
-                                {isAdmin && (
-                                    <div className="flex items-center gap-1">
+                                {isAdmin ? (
+                                    <div className="flex items-center gap-2 shrink-0">
                                         <button
                                             onClick={() => { setEditingStaff(selectedStaff); setShowModal(true); }}
-                                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-all active:scale-95"
                                             title="Edit Staff"
                                         >
-                                            <Edit2 size={18} />
+                                            <Edit2 size={13} />
+                                            <span>Edit Staff</span>
                                         </button>
                                         <button
                                             onClick={() => onDelete(selectedStaff.id)}
-                                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                             title="Delete Staff"
                                         >
-                                            {deletingId === selectedStaff.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                                            {deletingId === selectedStaff.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                                         </button>
+                                    </div>
+                                ) : (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold border border-slate-200 shrink-0">
+                                        <Shield size={12} className="text-slate-400" />
+                                        <span>View Only</span>
                                     </div>
                                 )}
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-6 border-t border-gray-100">
-                                <div className="flex items-start gap-3">
-                                    <div className="bg-blue-100 p-2.5 rounded-xl text-blue-600 mt-0.5 shrink-0"><Phone size={18} /></div>
-                                    <div>
-                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Phone</div>
-                                        <div className="font-medium text-gray-900 text-sm mt-0.5">{selectedStaff.phone || 'N/A'}</div>
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-2.5 border-t border-gray-100">
+                                <div className="bg-slate-50/80 border border-slate-100 rounded-lg p-2 flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><Phone size={12} /></div>
+                                    <div className="min-w-0">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Phone</div>
+                                        <div className="font-semibold text-gray-800 text-xs font-mono truncate">{selectedStaff.phone || 'N/A'}</div>
                                         {selectedStaff.emergencyPhone && (
-                                            <div className="text-xs text-red-500 font-medium mt-0.5">Emerg: {selectedStaff.emergencyPhone}</div>
+                                            <div className="text-[10px] text-red-500 font-medium truncate">Emg: {selectedStaff.emergencyPhone}</div>
                                         )}
                                     </div>
                                 </div>
-                                <div className="flex items-start gap-3">
-                                    <div className="bg-indigo-100 p-2.5 rounded-xl text-indigo-600 mt-0.5 shrink-0"><Briefcase size={18} /></div>
-                                    <div>
-                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Designation</div>
-                                        <div className="font-medium text-gray-900 text-sm mt-0.5">{selectedStaff.role || 'Staff'}</div>
-                                        <div className="text-xs text-gray-400 mt-0.5">FlipFlex Staff</div>
+                                <div className="bg-slate-50/80 border border-slate-100 rounded-lg p-2 flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-md bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><Briefcase size={12} /></div>
+                                    <div className="min-w-0">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Designation</div>
+                                        <div className="font-semibold text-gray-800 text-xs truncate">{selectedStaff.role || 'Staff'}</div>
+                                        <div className="text-[10px] text-gray-400 truncate">FlipFlex Staff</div>
                                     </div>
                                 </div>
-                                <div className="flex items-start gap-3">
-                                    <div className="bg-purple-100 p-2.5 rounded-xl text-purple-600 mt-0.5 shrink-0"><CreditCard size={18} /></div>
-                                    <div>
-                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Bank Details</div>
-                                        <div className="font-medium text-gray-900 text-sm mt-0.5">Acc: <span className="font-mono">{selectedStaff.accountNumber || 'N/A'}</span></div>
-                                        <div className="text-xs text-gray-500 mt-0.5">IFSC: <span className="font-mono font-medium">{selectedStaff.ifscCode || 'N/A'}</span></div>
+                                <div className="bg-slate-50/80 border border-slate-100 rounded-lg p-2 flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-md bg-purple-50 text-purple-600 flex items-center justify-center shrink-0"><CreditCard size={12} /></div>
+                                    <div className="min-w-0">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Bank Details</div>
+                                        <div className="font-medium text-gray-800 text-xs font-mono truncate">
+                                            <span className="text-gray-400 font-sans text-[10px] mr-1">A/C:</span>{selectedStaff.accountNumber || 'N/A'}
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 font-mono truncate">
+                                            <span className="text-gray-400 font-sans text-[10px] mr-1">IFSC:</span>{selectedStaff.ifscCode || 'N/A'}
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex items-start gap-3">
-                                    <div className="bg-amber-100 p-2.5 rounded-xl text-amber-600 mt-0.5 shrink-0"><Clock size={18} /></div>
-                                    <div>
-                                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Permitted Time</div>
-                                        <div className="font-medium text-gray-900 text-sm mt-0.5">{selectedStaff.allowedPermHours || 0} hrs / mo</div>
-                                        <div className="text-xs text-gray-400 mt-0.5">Monthly allowance</div>
+                                <div className="bg-slate-50/80 border border-slate-100 rounded-lg p-2 flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-md bg-amber-50 text-amber-600 flex items-center justify-center shrink-0"><Clock size={12} /></div>
+                                    <div className="min-w-0">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Permitted Time</div>
+                                        <div className="font-semibold text-gray-800 text-xs">{selectedStaff.allowedPermHours || 0} hrs / mo</div>
+                                        <div className="text-[10px] text-gray-400 truncate">Monthly allowance</div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* 2. Stats Cards (Matching Customers 3-Card Row) */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
-                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 border-l-4 border-l-blue-500">
-                                <div className="text-gray-500 text-xs font-bold uppercase tracking-wider">Monthly Base Salary</div>
-                                <div className="text-2xl font-bold text-blue-700 mt-1">₹{(selectedStaff.baseSalary || 0).toLocaleString()}</div>
-                                <div className="text-xs text-gray-400 mt-1">Fixed compensation</div>
+                        {/* 2. Stats Cards */}
+                        <div className="grid grid-cols-3 gap-2.5 shrink-0">
+                            <div className="bg-white p-2.5 rounded-xl shadow-2xs border border-gray-200 border-l-3 border-l-blue-500">
+                                <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider">Monthly Base Salary</div>
+                                <div className="text-base font-bold text-blue-700 font-mono mt-0.5">₹{(selectedStaff.baseSalary || 0).toLocaleString()}</div>
+                                <div className="text-[10px] text-gray-400">Fixed compensation</div>
                             </div>
-                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 border-l-4 border-l-green-500">
-                                <div className="text-gray-500 text-xs font-bold uppercase tracking-wider">This Month Incentives</div>
-                                <div className="text-2xl font-bold text-green-700 mt-1">₹{incentive.toLocaleString()}</div>
-                                <div className="text-xs text-gray-400 mt-1">Live sales commission</div>
+                            <div className="bg-white p-2.5 rounded-xl shadow-2xs border border-gray-200 border-l-3 border-l-emerald-500">
+                                <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider">This Month Incentives</div>
+                                <div className="text-base font-bold text-emerald-700 font-mono mt-0.5">₹{incentive.toLocaleString()}</div>
+                                <div className="text-[10px] text-gray-400">Live sales commission</div>
                             </div>
-                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 border-l-4 border-l-orange-500">
-                                <div className="text-gray-500 text-xs font-bold uppercase tracking-wider">Pending Payout</div>
-                                <div className="text-2xl font-bold text-orange-600 mt-1">₹{pendingTotal.toLocaleString()}</div>
-                                <div className="text-xs text-gray-400 mt-1">Unsettled commission balance</div>
+                            <div className="bg-white p-2.5 rounded-xl shadow-2xs border border-gray-200 border-l-3 border-l-amber-500">
+                                <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider">Pending Payout</div>
+                                <div className="text-base font-bold text-amber-600 font-mono mt-0.5">₹{pendingTotal.toLocaleString()}</div>
+                                <div className="text-[10px] text-gray-400">Unsettled commission balance</div>
                             </div>
                         </div>
 
                         {/* 3. Sub-tabs for Selected Staff */}
-                        <div className="flex items-center gap-2 bg-gray-100/90 p-1.5 rounded-xl self-start shrink-0 border border-gray-200/60">
+                        <div className="flex items-center gap-1.5 bg-gray-100/90 p-1 rounded-lg self-start shrink-0 border border-gray-200/60">
                             <button
                                 onClick={() => setStaffSubTab('attendance')}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                    staffSubTab === 'attendance' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                                    staffSubTab === 'attendance' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-500 hover:text-gray-800'
                                 }`}
                             >
-                                <CalendarIcon size={14} /> Attendance & Commissions
+                                <CalendarIcon size={13} /> Attendance & Commissions
                             </button>
                             <button
                                 onClick={() => setStaffSubTab('targets')}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                    staffSubTab === 'targets' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                                    staffSubTab === 'targets' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-500 hover:text-gray-800'
                                 }`}
                             >
-                                <Target size={14} className="text-blue-500" /> Sales Targets
+                                <Target size={13} className="text-blue-500" /> Sales Targets
                             </button>
                             <button
                                 onClick={() => setStaffSubTab('tasks')}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                    staffSubTab === 'tasks' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                                    staffSubTab === 'tasks' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-500 hover:text-gray-800'
                                 }`}
                             >
-                                <CheckSquare size={14} className="text-emerald-500" /> To-Do Tasks
+                                <CheckSquare size={13} className="text-emerald-500" /> To-Do Tasks
                             </button>
                         </div>
 
                         {staffSubTab === 'attendance' && (
                             <>
                                 {/* Today's Attendance Marking & Monthly Summary */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5 shrink-0">
                                     {/* Action Card */}
-                                    <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6 flex flex-col justify-between">
-                                        <div className="flex justify-between items-center mb-5">
+                                    <div className="lg:col-span-2 bg-white rounded-xl shadow-xs border border-gray-200 p-3.5 flex flex-col justify-between">
+                                        <div className="flex justify-between items-center mb-3">
                                             <div>
-                                                <h3 className="font-bold text-gray-800 text-base flex items-center gap-2">
-                                                    <Clock size={18} className="text-blue-600" /> Daily Attendance Marking
+                                                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-1.5">
+                                                    <Clock size={15} className="text-blue-600" /> Daily Attendance Marking
                                                 </h3>
-                                                <p className="text-xs text-gray-400 mt-0.5">Mark attendance status for this date</p>
+                                                <p className="text-[11px] text-gray-400 mt-0.5">Mark attendance status for this date</p>
                                             </div>
                                             <input
                                                 type="date"
                                                 value={date}
                                                 onChange={(e) => setDate(e.target.value)}
-                                                className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500"
+                                                className="bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 text-xs font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500"
                                             />
                                         </div>
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                             {[
                                                 { type: 'PRESENT', label: 'Present', color: 'bg-green-50 text-green-700 hover:bg-green-100 border-green-200' },
                                                 { type: 'ABSENT', label: 'Absent', color: 'bg-red-50 text-red-700 hover:bg-red-100 border-red-200' },
@@ -904,8 +982,8 @@ const DirectoryView = ({
                                                         key={opt.type}
                                                         onClick={() => isAdmin && handleMarkClick(selectedStaff, opt.type)}
                                                         disabled={!isAdmin}
-                                                        className={`py-3 px-2 rounded-xl font-bold text-sm border transition-all text-center ${
-                                                            isActive ? 'ring-2 ring-offset-1 ring-blue-500 shadow-md transform scale-[1.02] bg-white' : ''
+                                                        className={`py-2 px-1.5 rounded-lg font-semibold text-xs border transition-all text-center ${
+                                                            isActive ? 'ring-2 ring-offset-1 ring-blue-500 shadow-2xs bg-white' : ''
                                                         } ${opt.color} ${!isAdmin ? 'cursor-not-allowed opacity-75' : ''}`}
                                                         title={!isAdmin ? "Only Admin can mark staff attendance" : opt.label}
                                                     >
@@ -915,7 +993,7 @@ const DirectoryView = ({
                                             })}
                                         </div>
                                         {attendanceMap[selectedStaff.id] && (
-                                            <div className="mt-4 text-xs text-center text-gray-600 bg-gray-50 py-2 rounded-lg border border-gray-100 flex items-center justify-center gap-3">
+                                            <div className="mt-2.5 text-xs text-center text-gray-600 bg-gray-50 py-1.5 px-3 rounded-lg border border-gray-100 flex items-center justify-center gap-3">
                                                 <span>Status: <strong className="text-gray-900">{attendanceMap[selectedStaff.id].status}</strong></span>
                                                 {attendanceMap[selectedStaff.id].inTime && <span>• In: <strong className="text-gray-900">{attendanceMap[selectedStaff.id].inTime}</strong></span>}
                                                 {attendanceMap[selectedStaff.id].remarks && <span>• Note: <em>{attendanceMap[selectedStaff.id].remarks}</em></span>}
@@ -924,60 +1002,60 @@ const DirectoryView = ({
                                     </div>
 
                                     {/* Monthly Summary Card */}
-                                    <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl shadow-sm p-6 text-white flex flex-col justify-between relative overflow-hidden">
-                                        <div className="absolute top-0 right-0 p-4 opacity-10"><Activity size={60} /></div>
+                                    <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl shadow-xs p-3.5 text-white flex flex-col justify-between relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 p-3 opacity-10"><Activity size={50} /></div>
                                         <div>
-                                            <h4 className="text-blue-100 text-xs font-bold uppercase tracking-wider mb-2">{format(new Date(), 'MMMM')} Summary</h4>
-                                            <div className="grid grid-cols-3 gap-2 text-center pt-2">
-                                                <div className="bg-white/10 rounded-xl py-2.5 px-1 backdrop-blur-xs">
-                                                    <div className="text-2xl font-bold">{stats.present}</div>
-                                                    <div className="text-blue-200 text-xs font-medium mt-0.5">Present</div>
+                                            <h4 className="text-blue-100 text-[10px] font-bold uppercase tracking-wider mb-2">{format(new Date(), 'MMMM')} Summary</h4>
+                                            <div className="grid grid-cols-3 gap-1.5 text-center pt-1">
+                                                <div className="bg-white/10 rounded-lg py-2 px-1 backdrop-blur-xs">
+                                                    <div className="text-lg font-bold">{stats.present}</div>
+                                                    <div className="text-blue-200 text-[10px] font-medium mt-0.5">Present</div>
                                                 </div>
-                                                <div className="bg-white/10 rounded-xl py-2.5 px-1 backdrop-blur-xs">
-                                                    <div className="text-2xl font-bold text-red-200">{stats.absent}</div>
-                                                    <div className="text-blue-200 text-xs font-medium mt-0.5">Absent</div>
+                                                <div className="bg-white/10 rounded-lg py-2 px-1 backdrop-blur-xs">
+                                                    <div className="text-lg font-bold text-red-200">{stats.absent}</div>
+                                                    <div className="text-blue-200 text-[10px] font-medium mt-0.5">Absent</div>
                                                 </div>
-                                                <div className="bg-white/10 rounded-xl py-2.5 px-1 backdrop-blur-xs">
-                                                    <div className="text-2xl font-bold text-amber-200">{stats.perms}</div>
-                                                    <div className="text-blue-200 text-xs font-medium mt-0.5">Permits</div>
+                                                <div className="bg-white/10 rounded-lg py-2 px-1 backdrop-blur-xs">
+                                                    <div className="text-lg font-bold text-amber-200">{stats.perms}</div>
+                                                    <div className="text-blue-200 text-[10px] font-medium mt-0.5">Permits</div>
                                                 </div>
                                             </div>
                                         </div>
                                         <button
                                             onClick={() => { setShowCalendarModal(true); }}
-                                            className="mt-4 w-full py-2.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                                            className="mt-2.5 w-full py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
                                         >
-                                            <CalendarIcon size={16} /> View Full Calendar
+                                            <CalendarIcon size={13} /> View Full Calendar
                                         </button>
                                     </div>
                                 </div>
 
                                 {/* Commission Ledger Card (Matching Purchase History in Customers) */}
-                                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col min-h-[400px] overflow-hidden">
-                                    <div className="p-4 border-b bg-gray-50 flex justify-between items-center gap-4">
-                                        <h3 className="font-bold text-gray-800 flex items-center gap-2 whitespace-nowrap">
-                                            <CreditCard size={18} className="text-blue-600" /> Commission Ledger
+                                <div className="bg-white rounded-xl shadow-xs border border-gray-200 flex flex-col min-h-[300px] overflow-hidden">
+                                    <div className="px-3.5 py-2 border-b bg-gray-50 flex justify-between items-center gap-4">
+                                        <h3 className="font-bold text-gray-800 text-xs flex items-center gap-1.5 whitespace-nowrap">
+                                            <CreditCard size={15} className="text-blue-600" /> Commission Ledger
                                         </h3>
                                         <div className="flex items-center gap-2 flex-wrap">
-                                            <div className="flex items-center gap-1 border border-gray-200 rounded-lg bg-white px-2 py-1">
+                                            <div className="flex items-center gap-1 border border-gray-200 rounded-lg bg-white px-2 py-0.5">
                                                 <input
                                                     type="date"
                                                     value={startDate}
                                                     onChange={(e) => setStartDate(e.target.value)}
-                                                    className="text-xs outline-none bg-transparent"
+                                                    className="text-[11px] outline-none bg-transparent"
                                                 />
-                                                <span className="text-gray-400 text-xs">to</span>
+                                                <span className="text-gray-400 text-[11px]">to</span>
                                                 <input
                                                     type="date"
                                                     value={endDate}
                                                     onChange={(e) => setEndDate(e.target.value)}
-                                                    className="text-xs outline-none bg-transparent"
+                                                    className="text-[11px] outline-none bg-transparent"
                                                 />
                                             </div>
                                             {(startDate || endDate) && (
                                                 <button
                                                     onClick={() => { setStartDate(''); setEndDate(''); }}
-                                                    className="text-xs text-red-500 hover:text-red-700 font-semibold px-2 py-1"
+                                                    className="text-xs text-red-500 hover:text-red-700 font-semibold px-1.5 py-0.5"
                                                 >
                                                     Clear
                                                 </button>
@@ -989,38 +1067,38 @@ const DirectoryView = ({
                                         <table className="w-full text-left border-collapse">
                                             <thead className="bg-gray-50/70 border-b border-gray-100">
                                                 <tr>
-                                                    <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
-                                                    <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Bill ID</th>
-                                                    <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider text-right">Amount</th>
-                                                    <th className="p-4 font-semibold text-gray-600 text-xs uppercase tracking-wider text-center">Status</th>
+                                                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] uppercase tracking-wider">Date</th>
+                                                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] uppercase tracking-wider">Bill ID</th>
+                                                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] uppercase tracking-wider text-right">Amount</th>
+                                                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] uppercase tracking-wider text-center">Status</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100">
                                                 {commissionsLoading ? (
-                                                    <tr><td colSpan={4} className="p-8 text-center text-gray-400"><Loader2 className="animate-spin mx-auto mb-2" /> Loading ledger...</td></tr>
+                                                    <tr><td colSpan={4} className="py-6 text-center text-gray-400 text-xs"><Loader2 className="animate-spin mx-auto mb-1.5" size={16} /> Loading ledger...</td></tr>
                                                 ) : filteredCommissions.length === 0 ? (
-                                                    <tr><td colSpan={4} className="p-8 text-center text-gray-400">No commission history found.</td></tr>
+                                                    <tr><td colSpan={4} className="py-6 text-center text-gray-400 text-xs">No commission history found.</td></tr>
                                                 ) : (
                                                     filteredCommissions.map((comm) => (
                                                         <tr key={comm.id} className="hover:bg-gray-50/80 transition-colors">
-                                                            <td className="p-4 text-sm font-medium text-gray-900">
+                                                            <td className="py-2 px-3 text-xs font-medium text-gray-900">
                                                                 {new Date(comm.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                                                <div className="text-xs text-gray-400">{new Date(comm.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+                                                                <span className="text-[10px] text-gray-400 ml-1.5">{new Date(comm.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                                                             </td>
-                                                            <td className="p-4 text-sm font-mono text-blue-600 font-medium">{comm.billId}</td>
-                                                            <td className="p-4 text-sm font-bold text-right text-gray-900">₹{(Number(comm.amount) || 0).toFixed(2)}</td>
-                                                            <td className="p-4 text-center">
+                                                            <td className="py-2 px-3 text-xs font-mono text-blue-600 font-medium">{comm.billId}</td>
+                                                            <td className="py-2 px-3 text-xs font-bold text-right text-gray-900 font-mono">₹{(Number(comm.amount) || 0).toFixed(2)}</td>
+                                                            <td className="py-2 px-3 text-center">
                                                                 <button
                                                                     onClick={() => isAdmin && handleStatusToggle(comm)}
                                                                     disabled={!isAdmin}
-                                                                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                                                        isAdmin ? 'cursor-pointer active:scale-95 shadow-xs' : 'cursor-default opacity-85'
+                                                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all ${
+                                                                        isAdmin ? 'cursor-pointer active:scale-95 shadow-2xs' : 'cursor-default opacity-85'
                                                                     } ${
                                                                         comm.status === 'PAID' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
                                                                     }`}
                                                                     title={isAdmin ? "Click to toggle status" : "Only Admin can manage commission status"}
                                                                 >
-                                                                    {comm.status === 'PAID' ? <CheckCircle size={12} /> : <Clock size={12} />}
+                                                                    {comm.status === 'PAID' ? <CheckCircle size={10} /> : <Clock size={10} />}
                                                                     {comm.status}
                                                                 </button>
                                                             </td>
@@ -1030,20 +1108,20 @@ const DirectoryView = ({
                                             </tbody>
                                             {/* Footer Summaries */}
                                             {!commissionsLoading && filteredCommissions.length > 0 && (
-                                                <tfoot className="bg-gray-50/80 font-bold text-sm border-t border-gray-200">
+                                                <tfoot className="bg-gray-50/80 font-bold text-xs border-t border-gray-200">
                                                     <tr>
-                                                        <td colSpan={2} className="p-4 text-right text-gray-600">Total Pending:</td>
-                                                        <td className="p-4 text-right text-orange-600 font-bold">
+                                                        <td colSpan={2} className="py-2 px-3 text-right text-gray-600 text-[11px]">Total Pending:</td>
+                                                        <td className="py-2 px-3 text-right text-orange-600 font-bold font-mono">
                                                             ₹{(filteredCommissions.filter(c => c.status === 'UNPAID').reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || 0).toFixed(2)}
                                                         </td>
-                                                        <td className="p-4"></td>
+                                                        <td className="py-2 px-3"></td>
                                                     </tr>
                                                     <tr>
-                                                        <td colSpan={2} className="p-4 text-right border-t border-gray-100 text-gray-600">Total Paid:</td>
-                                                        <td className="p-4 text-right text-green-600 border-t border-gray-100 font-bold">
+                                                        <td colSpan={2} className="py-2 px-3 text-right border-t border-gray-100 text-gray-600 text-[11px]">Total Paid:</td>
+                                                        <td className="py-2 px-3 text-right text-green-600 border-t border-gray-100 font-bold font-mono">
                                                             ₹{(filteredCommissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || 0).toFixed(2)}
                                                         </td>
-                                                        <td className="p-4 border-t border-gray-100"></td>
+                                                        <td className="py-2 px-3 border-t border-gray-100"></td>
                                                     </tr>
                                                 </tfoot>
                                             )}
@@ -1054,7 +1132,7 @@ const DirectoryView = ({
                         )}
 
                         {staffSubTab === 'targets' && (
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                            <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-4">
                                 <StaffTargetsView
                                     targets={targets}
                                     staffList={staff}
@@ -1069,7 +1147,7 @@ const DirectoryView = ({
                         )}
 
                         {staffSubTab === 'tasks' && (
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                            <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-4">
                                 <StaffTasksView
                                     tasks={tasks}
                                     staffList={staff}
@@ -1083,12 +1161,12 @@ const DirectoryView = ({
                         )}
                     </>
                 ) : (
-                    <div className="h-full flex flex-col items-center justify-center bg-white rounded-2xl border border-gray-200 p-12 text-center">
-                        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-xs">
-                            <Users size={32} />
+                    <div className="h-full flex flex-col items-center justify-center bg-white rounded-xl border border-gray-200 p-8 text-center">
+                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-3 shadow-2xs">
+                            <Users size={24} />
                         </div>
-                        <h3 className="text-lg font-bold text-gray-800">No Staff Selected</h3>
-                        <p className="text-gray-400 text-sm max-w-sm mt-1">
+                        <h3 className="text-base font-bold text-gray-800">No Staff Selected</h3>
+                        <p className="text-gray-400 text-xs max-w-sm mt-1">
                             Choose an employee from the directory on the left to view profile details, track attendance, and process payroll.
                         </p>
                     </div>
@@ -1105,11 +1183,52 @@ const DirectoryView = ({
                 />
             )}
 
-            {showModal && isAdmin && (
+            {showModal && (
                 <StaffFormModal
                     staff={editingStaff}
                     onClose={() => setShowModal(false)}
-                    onSuccess={() => { setShowModal(false); onRefresh(); }}
+                    onSuccess={(savedStaff?: any) => {
+                        setShowModal(false);
+                        if (savedStaff) {
+                            // 1. Immediately update localStaffList
+                            setLocalStaffList((prev: Staff[]) => {
+                                const exists = prev.some(s => s.id === savedStaff.id);
+                                if (exists) {
+                                    return prev.map(s => s.id === savedStaff.id ? { ...s, ...savedStaff } : s);
+                                } else {
+                                    return [savedStaff, ...prev];
+                                }
+                            });
+
+                            // 2. Immediately update GlobalDataContext via mutateStaff
+                            if (mutateStaff) {
+                                mutateStaff((prev: Staff[]) => {
+                                    const exists = prev.some(s => s.id === savedStaff.id);
+                                    if (exists) {
+                                        return prev.map(s => s.id === savedStaff.id ? { ...s, ...savedStaff } : s);
+                                    } else {
+                                        return [savedStaff, ...prev];
+                                    }
+                                });
+                            }
+
+                            // 3. Immediately update selectedStaff & editingStaff with new values
+                            setSelectedStaff(savedStaff);
+                            setEditingStaff(savedStaff);
+
+                            // 4. Update cashier_staff_cache immediately
+                            try {
+                                const currentCached = JSON.parse(localStorage.getItem('cashier_staff_cache') || '[]');
+                                const exists = currentCached.some((s: any) => s.id === savedStaff.id);
+                                const updatedCache = exists
+                                    ? currentCached.map((s: any) => s.id === savedStaff.id ? { ...s, ...savedStaff } : s)
+                                    : [savedStaff, ...currentCached];
+                                localStorage.setItem('cashier_staff_cache', JSON.stringify(updatedCache));
+                            } catch {}
+                        }
+                        // 5. Background sync
+                        if (onRefresh) onRefresh();
+                    }}
                     isAdmin={isAdmin}
                 />
             )}
@@ -1460,13 +1579,13 @@ const StaffCalendarModal = ({ staff, onClose, isAdmin }: { staff: Staff, onClose
 
 // --- STAFF FORM MODAL ---
 const StaffFormModal = ({ staff, onClose, onSuccess, isAdmin }: any) => {
-    if (!isAdmin) return null;
-
     const [formData, setFormData] = useState({
         name: '', phone: '', emergencyPhone: '', role: 'Employee',
         baseSalary: 10000, allowedPermHours: 2.0, profilePicUrl: '', isActive: true,
-        accountNumber: '', ifscCode: '', commissionPercentage: 0
+        accountNumber: '', ifscCode: '', commissionPercentage: 0,
+        appUsername: '', appPassword: '', appLocation: ''
     });
+    const [showModalPassword, setShowModalPassword] = useState(true);
 
     const nameRef = useRef<HTMLInputElement>(null);
     const phoneRef = useRef<HTMLInputElement>(null);
@@ -1496,7 +1615,17 @@ const StaffFormModal = ({ staff, onClose, onSuccess, isAdmin }: any) => {
                 role: staff.role || 'Employee', baseSalary: staff.baseSalary || 10000,
                 allowedPermHours: staff.allowedPermHours || 2.0, profilePicUrl: staff.profilePicUrl || '', isActive: staff.isActive,
                 accountNumber: staff.accountNumber || '', ifscCode: staff.ifscCode || '',
-                commissionPercentage: staff.commissionPercentage || 0
+                commissionPercentage: staff.commissionPercentage || 0,
+                appUsername: staff.appUsername || staff.name || '',
+                appPassword: staff.appPassword || staff.phone || '',
+                appLocation: staff.appLocation || ''
+            });
+        } else {
+            setFormData({
+                name: '', phone: '', emergencyPhone: '', role: 'Employee',
+                baseSalary: 10000, allowedPermHours: 2.0, profilePicUrl: '', isActive: true,
+                accountNumber: '', ifscCode: '', commissionPercentage: 0,
+                appUsername: '', appPassword: '', appLocation: ''
             });
         }
     }, [staff]);
@@ -1504,16 +1633,48 @@ const StaffFormModal = ({ staff, onClose, onSuccess, isAdmin }: any) => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!isAdmin) {
-            toast.error("Only Admin can add or edit staff.");
+            toast.error("Permission denied. Only Admin can modify or add staff records.");
             return;
         }
         setIsSaving(true);
+        const payload = {
+            ...formData,
+            appUsername: formData.appUsername.trim() || formData.name.trim(),
+            appPassword: formData.appPassword.trim() || formData.phone.trim()
+        };
         try {
-            if (staff) await staffApi.update(staff.id, formData);
-            else await staffApi.add(formData);
+            if (staff) {
+                await staffApi.update(staff.id, payload);
+                const updatedStaff = {
+                    ...staff,
+                    ...payload,
+                    appUsername: payload.appUsername,
+                    appPassword: payload.appPassword,
+                    isActive: payload.isActive !== undefined ? payload.isActive : staff.isActive
+                };
+                onSuccess(updatedStaff);
+            } else {
+                const res = await staffApi.add(payload);
+                const generatedId = (res?.data && typeof res.data === 'object' && res.data.id)
+                    ? res.data.id
+                    : (typeof res?.data === 'string' && res.data.trim().length > 0 ? res.data : '')
+                    || `S-${Date.now().toString().slice(-5)}`;
+                const newStaff = {
+                    ...payload,
+                    id: generatedId,
+                    appUsername: payload.appUsername,
+                    appPassword: payload.appPassword,
+                    createdAt: new Date().toISOString(),
+                    active: true,
+                    isActive: true
+                };
+                onSuccess(newStaff);
+            }
             toast.success("Saved successfully");
-            onSuccess();
-        } catch (error) { toast.error("Operation failed"); }
+        } catch (error) {
+            console.error(error);
+            toast.error("Operation failed");
+        }
         finally { setIsSaving(false); }
     };
 
@@ -1609,6 +1770,46 @@ const StaffFormModal = ({ staff, onClose, onSuccess, isAdmin }: any) => {
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">IFSC Code</label>
                                 <input ref={ifscRef} className="w-full border border-gray-200 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none bg-white font-mono text-sm uppercase" value={formData.ifscCode} onChange={e => setFormData({ ...formData, ifscCode: e.target.value.toUpperCase() })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(e as any); } }} />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* App Login / Self Attendance Credentials */}
+                    <div className="p-4 bg-amber-50/70 rounded-xl border border-amber-200 flex flex-col gap-3">
+                        <h4 className="text-sm font-bold text-amber-900 flex items-center gap-2">
+                            <Lock size={16} className="text-amber-600" /> Terminal / Punch-In Login Credentials
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-bold text-amber-800/80 mb-1">App Username</label>
+                                <input
+                                    className="w-full border border-amber-200 rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white text-sm"
+                                    placeholder={formData.name || "e.g. JUSTIN JEEVA"}
+                                    value={formData.appUsername}
+                                    onChange={e => setFormData({ ...formData, appUsername: e.target.value })}
+                                />
+                                <span className="text-[10px] text-amber-700/70">Used by staff to punch in at cashier terminal</span>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-amber-800/80 mb-1">App Password</label>
+                                <div className="relative">
+                                    <input
+                                        type={showModalPassword ? "text" : "password"}
+                                        className="w-full border border-amber-200 rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-amber-500 outline-none bg-white text-sm font-mono"
+                                        placeholder={formData.phone || "e.g. 8248327187"}
+                                        value={formData.appPassword}
+                                        onChange={e => setFormData({ ...formData, appPassword: e.target.value })}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowModalPassword(!showModalPassword)}
+                                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 transition-colors"
+                                        title={showModalPassword ? "Hide Password" : "Show Password"}
+                                    >
+                                        {showModalPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    </button>
+                                </div>
+                                <span className="text-[10px] text-amber-700/70">Defaults to staff phone number if left blank</span>
                             </div>
                         </div>
                     </div>

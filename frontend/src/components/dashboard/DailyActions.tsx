@@ -920,7 +920,7 @@ const DailyActions = () => {
             // Title
             ctx.font = 'bold 32px sans-serif';
             ctx.fillStyle = '#1e293b';
-            ctx.fillText(`Financial Analysis: Earnings vs Expenses`, 40, 50);
+            ctx.fillText(`Financial Analysis: Income vs Expenses`, 40, 50);
 
             // Subtitle
             ctx.font = '20px sans-serif';
@@ -1019,7 +1019,7 @@ const DailyActions = () => {
                     {showGraph && (
                         <div ref={graphRef} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 animate-in fade-in slide-in-from-top-4 duration-300">
                             <h3 className="text-lg font-bold text-slate-700 mb-6 flex justify-between">
-                                <span>Earnings vs Expenses</span>
+                                <span>Income vs Expenses</span>
                                 <div className="flex gap-2">
                                     <button onClick={handleDownloadPDF} className="px-3 py-1 rounded text-sm bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 flex items-center gap-2" title="Download Full Analysis Report">
                                         <Download size={14} />

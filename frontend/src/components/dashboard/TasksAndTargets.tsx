@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Target, CheckSquare, Plus, RefreshCw, User } from 'lucide-react';
+import { Target, CheckSquare, Plus, RefreshCw, User, Shield } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useLocation } from 'react-router-dom';
 import { useGlobalData } from '@/context/GlobalDataContext';
 import { staffApi, StaffTarget, StaffTask, Staff } from '@/lib/api';
 import StaffTargetsView from './StaffTargetsView';
@@ -8,17 +9,44 @@ import StaffTasksView from './StaffTasksView';
 import StaffTargetModal from './StaffTargetModal';
 import StaffTaskModal from './StaffTaskModal';
 
+const TARGETS_CACHE_KEY = 'RAJU_CACHE_V2_staff_targets';
+const TASKS_CACHE_KEY = 'RAJU_CACHE_V2_staff_tasks';
+
+const getInitialCache = <T,>(key: string): T[] => {
+  try {
+    const cached = localStorage.getItem(key);
+    return cached ? JSON.parse(cached) : [];
+  } catch {
+    return [];
+  }
+};
+
+const fetchWithTimeout = <T,>(promise: Promise<T>, ms: number = 8000): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Request timeout')), ms)),
+  ]);
+};
+
 const TasksAndTargets: React.FC = () => {
   const { user } = useAuth();
-  const isAdmin = user?.role?.toLowerCase() === 'admin';
+  const location = useLocation();
+  const isCashierRoute = location.pathname.startsWith('/cashier');
+  const isAdmin = user?.role?.toLowerCase() === 'admin' && !isCashierRoute;
   const { staff: staffList = [], bills = [] } = useGlobalData() as any;
 
   const [activeTab, setActiveTab] = useState<'targets' | 'tasks'>('targets');
   const [selectedStaffId, setSelectedStaffId] = useState<string>('ALL');
 
-  const [targets, setTargets] = useState<StaffTarget[]>([]);
-  const [tasks, setTasks] = useState<StaffTask[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [targets, setTargets] = useState<StaffTarget[]>(() => getInitialCache<StaffTarget>(TARGETS_CACHE_KEY));
+  const [tasks, setTasks] = useState<StaffTask[]>(() => getInitialCache<StaffTask>(TASKS_CACHE_KEY));
+  const [loading, setLoading] = useState<boolean>(() => {
+    // Only block with loading if we have zero cached items
+    const hasCachedTargets = getInitialCache<StaffTarget>(TARGETS_CACHE_KEY).length > 0;
+    const hasCachedTasks = getInitialCache<StaffTask>(TASKS_CACHE_KEY).length > 0;
+    return !hasCachedTargets && !hasCachedTasks;
+  });
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Modals state
   const [targetModalOpen, setTargetModalOpen] = useState(false);
@@ -27,28 +55,36 @@ const TasksAndTargets: React.FC = () => {
   const [editingTask, setEditingTask] = useState<StaffTask | null>(null);
 
   const fetchData = async () => {
-    setLoading(true);
+    setIsSyncing(true);
+    // If we have no cached data at all, show loading spinner
+    if (targets.length === 0 && tasks.length === 0) {
+      setLoading(true);
+    }
+
     try {
       const [targetsRes, tasksRes] = await Promise.allSettled([
-        staffApi.getAllTargets(),
-        staffApi.getAllTasks(),
+        fetchWithTimeout(staffApi.getAllTargets()),
+        fetchWithTimeout(staffApi.getAllTasks()),
       ]);
+
       if (targetsRes.status === 'fulfilled' && Array.isArray(targetsRes.value?.data)) {
         setTargets(targetsRes.value.data);
-      } else {
-        setTargets([]);
+        try {
+          localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targetsRes.value.data));
+        } catch {}
       }
+
       if (tasksRes.status === 'fulfilled' && Array.isArray(tasksRes.value?.data)) {
         setTasks(tasksRes.value.data);
-      } else {
-        setTasks([]);
+        try {
+          localStorage.setItem(TASKS_CACHE_KEY, JSON.stringify(tasksRes.value.data));
+        } catch {}
       }
     } catch (err) {
       console.error('Failed to load targets or tasks', err);
-      setTargets([]);
-      setTasks([]);
     } finally {
       setLoading(false);
+      setIsSyncing(false);
     }
   };
 
@@ -60,6 +96,21 @@ const TasksAndTargets: React.FC = () => {
     ? null
     : (staffList.find((s: Staff) => s.id === selectedStaffId) || null);
 
+  const filteredTargetsCount = selectedStaffObj
+    ? targets.filter(t =>
+        (selectedStaffObj.id && t.staffId && String(t.staffId).trim() === String(selectedStaffObj.id).trim()) ||
+        (selectedStaffObj.appUsername && t.staffId && String(t.staffId).trim().toLowerCase() === String(selectedStaffObj.appUsername).trim().toLowerCase())
+      ).length
+    : targets.length;
+
+  const filteredTasksCount = selectedStaffObj
+    ? tasks.filter(t =>
+        (selectedStaffObj.id && t.assignedStaffId && String(t.assignedStaffId).trim() === String(selectedStaffObj.id).trim()) ||
+        (selectedStaffObj.appUsername && t.assignedStaffId && String(t.assignedStaffId).trim().toLowerCase() === String(selectedStaffObj.appUsername).trim().toLowerCase()) ||
+        t.assignedStaffId === 'ALL'
+      ).length
+    : tasks.length;
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -70,11 +121,20 @@ const TasksAndTargets: React.FC = () => {
               <Target size={22} />
             </div>
             <div>
-              <h1 className="text-2xl font-black text-slate-800 tracking-tight">
-                Tasks & Targets
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">
+                  Tasks & Targets
+                </h1>
+                {!isAdmin && (
+                  <span className="text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                    <Shield size={12} className="text-slate-400" /> View Only
+                  </span>
+                )}
+              </div>
               <p className="text-xs sm:text-sm text-slate-500 font-medium">
-                Sales targets achieved automatically from billed sales, and staff to-do checklists
+                {isAdmin
+                  ? 'Sales targets achieved automatically from billed sales, and staff to-do checklists'
+                  : 'View sales targets progress and staff to-do checklists (read-only)'}
               </p>
             </div>
           </div>
@@ -101,11 +161,12 @@ const TasksAndTargets: React.FC = () => {
 
           <button
             onClick={fetchData}
-            disabled={loading}
+            disabled={loading || isSyncing}
             className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition flex items-center gap-1.5 text-xs font-bold"
             title="Refresh Data"
           >
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={15} className={loading || isSyncing ? 'animate-spin text-blue-600' : ''} />
+            {isSyncing && <span className="text-[10px] text-blue-600 font-bold hidden sm:inline">Syncing...</span>}
           </button>
 
           {isAdmin && (
@@ -149,7 +210,7 @@ const TasksAndTargets: React.FC = () => {
           <Target size={18} />
           <span>Sales Targets</span>
           <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-bold ml-1">
-            {targets.length}
+            {filteredTargetsCount}
           </span>
         </button>
 
@@ -164,7 +225,7 @@ const TasksAndTargets: React.FC = () => {
           <CheckSquare size={18} />
           <span>To-Do Tasks</span>
           <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full font-bold ml-1">
-            {tasks.length}
+            {filteredTasksCount}
           </span>
         </button>
       </div>
@@ -213,7 +274,8 @@ const TasksAndTargets: React.FC = () => {
           setEditingTarget(null);
         }}
         staffList={staffList}
-        editingTarget={editingTarget}
+        selectedStaffId={selectedStaffId !== 'ALL' ? selectedStaffId : undefined}
+        initialTarget={editingTarget}
         onSuccess={fetchData}
       />
 
@@ -224,7 +286,8 @@ const TasksAndTargets: React.FC = () => {
           setEditingTask(null);
         }}
         staffList={staffList}
-        editingTask={editingTask}
+        selectedStaffId={selectedStaffId !== 'ALL' ? selectedStaffId : undefined}
+        initialTask={editingTask}
         onSuccess={fetchData}
       />
     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Target, Trophy, TrendingUp, Calendar, AlertCircle, Plus, Edit2, Trash2, CheckCircle2, DollarSign, Package } from 'lucide-react';
 import { Staff, StaffTarget, Bill, staffApi } from '@/lib/api';
 import { toast } from 'react-hot-toast';
@@ -30,45 +30,86 @@ const StaffTargetsView: React.FC<StaffTargetsViewProps> = ({
   // Filter targets for selected staff (or all if none selected)
   const safeTargets = Array.isArray(targets) ? targets : [];
   const displayTargets = safeTargets.filter(t => {
-    const matchesStaff = selectedStaff ? t.staffId === selectedStaff.id : true;
+    const matchesStaff = selectedStaff
+      ? (
+          (selectedStaff.id && t.staffId && String(t.staffId).trim() === String(selectedStaff.id).trim()) ||
+          (selectedStaff.appUsername && t.staffId && String(t.staffId).trim().toLowerCase() === String(selectedStaff.appUsername).trim().toLowerCase())
+        )
+      : true;
     const matchesPeriod = filterPeriod === 'ALL' ? true : t.period === filterPeriod;
     return matchesStaff && matchesPeriod;
   });
 
-  // Calculate live sales metrics for a target based on actual bills
-  const calculateTargetProgress = (target: StaffTarget) => {
-    const staffBills = bills.filter(b => {
-      if (b.staffId !== target.staffId) return false;
-      if (b.status === 'HOLD' || b.status === 'CANCELLED') return false;
+  // Pre-calculate live sales metrics in a single pass for instant O(1) card lookups
+  const staffSalesMap = useMemo(() => {
+    const map = new Map<string, { revenue: number; units: number; billCount: number }>();
+    if (!Array.isArray(bills)) return map;
 
-      // Match period (format: YYYY-MM)
-      if (target.period && target.period !== 'ALL') {
-        const billDate = new Date(b.createdAt || new Date());
-        if (isNaN(billDate.getTime())) return false;
-        const yearMonth = `${billDate.getFullYear()}-${String(billDate.getMonth() + 1).padStart(2, '0')}`;
-        return yearMonth === target.period;
+    for (const b of bills) {
+      if (!b.staffId || b.status === 'HOLD' || b.status === 'CANCELLED') continue;
+
+      const billRevenue = Number(b.finalAmount) || 0;
+      let billUnits = 0;
+      if (Array.isArray(b.items)) {
+        for (const it of b.items) {
+          billUnits += Number(it.quantity) || 0;
+        }
       }
-      return true;
-    });
 
-    const achievedRevenue = staffBills.reduce((sum, b) => sum + (Number(b.finalAmount) || 0), 0);
-    const achievedUnits = staffBills.reduce((sum, b) => {
-      const billUnits = (b.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0);
-      return sum + billUnits;
-    }, 0);
+      let yearMonth = '';
+      if (b.createdAt) {
+        if (typeof b.createdAt === 'string' && b.createdAt.length >= 7 && b.createdAt[4] === '-') {
+          yearMonth = b.createdAt.substring(0, 7);
+        } else {
+          const d = new Date(b.createdAt);
+          if (!isNaN(d.getTime())) {
+            yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          }
+        }
+      }
+
+      // Add to specific period
+      if (yearMonth) {
+        const periodKey = `${b.staffId}___${yearMonth}`;
+        const prevP = map.get(periodKey) || { revenue: 0, units: 0, billCount: 0 };
+        prevP.revenue += billRevenue;
+        prevP.units += billUnits;
+        prevP.billCount += 1;
+        map.set(periodKey, prevP);
+      }
+
+      // Add to 'ALL' period
+      const allKey = `${b.staffId}___ALL`;
+      const prevA = map.get(allKey) || { revenue: 0, units: 0, billCount: 0 };
+      prevA.revenue += billRevenue;
+      prevA.units += billUnits;
+      prevA.billCount += 1;
+      map.set(allKey, prevA);
+    }
+
+    return map;
+  }, [bills]);
+
+  // Fast O(1) progress lookup
+  const calculateTargetProgress = useCallback((target: StaffTarget) => {
+    const periodKey = target.period && target.period !== 'ALL'
+      ? `${target.staffId}___${target.period}`
+      : `${target.staffId}___ALL`;
+
+    const stats = staffSalesMap.get(periodKey) || { revenue: 0, units: 0, billCount: 0 };
 
     const targetRevenue = Number(target.targetAmount) || 1;
-    const percentRevenue = Math.min(Math.round((achievedRevenue / targetRevenue) * 100), 100);
-    const isCompleted = achievedRevenue >= targetRevenue;
+    const percentRevenue = Math.min(Math.round((stats.revenue / targetRevenue) * 100), 100);
+    const isCompleted = stats.revenue >= targetRevenue;
 
     return {
-      achievedRevenue,
-      achievedUnits,
-      billCount: staffBills.length,
+      achievedRevenue: stats.revenue,
+      achievedUnits: stats.units,
+      billCount: stats.billCount,
       percentRevenue,
       isCompleted,
     };
-  };
+  }, [staffSalesMap]);
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this sales target?')) return;
@@ -153,7 +194,10 @@ const StaffTargetsView: React.FC<StaffTargetsViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {displayTargets.map((target) => {
             const { achievedRevenue, achievedUnits, billCount, percentRevenue, isCompleted } = calculateTargetProgress(target);
-            const staffInfo = staffList.find(s => s.id === target.staffId);
+            const staffInfo = staffList.find(s => 
+              (s.id && target.staffId && String(s.id).trim() === String(target.staffId).trim()) ||
+              (s.appUsername && target.staffId && String(s.appUsername).trim().toLowerCase() === String(target.staffId).trim().toLowerCase())
+            );
 
             return (
               <div
@@ -181,7 +225,7 @@ const StaffTargetsView: React.FC<StaffTargetsViewProps> = ({
                         )}
                       </div>
                       <h4 className="text-base font-bold text-gray-900 mt-1.5 flex items-center gap-1.5">
-                        {target.staffName || staffInfo?.name || 'Staff Member'}
+                        {staffInfo?.name || target.staffName || 'Staff Member'}
                       </h4>
                       {staffInfo?.role && (
                         <span className="text-xs text-gray-400 font-medium">{staffInfo.role}</span>

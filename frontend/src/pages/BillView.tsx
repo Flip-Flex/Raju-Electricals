@@ -269,10 +269,7 @@ const BillView = () => {
                                     <div className="flex justify-between"><strong>Items:</strong> {items.length} <strong>Qty:</strong> {totalQty}</div>
                                 </div>
                                 <div className="text-[8px] mt-1">
-                                    <strong>Bank Details</strong><br />
-                                    {APP_CONFIG.COMPANY_NAME}<br />
-                                    Acc: 169702000000359<br />
-                                    IFSC: IOBA0001697
+                                    <strong>Company's Bank Details</strong>
                                 </div>
                             </div>
 

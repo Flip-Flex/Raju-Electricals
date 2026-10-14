@@ -167,12 +167,13 @@ const buildPayloadFromUIItems = (
 
   const totalDiscountAmount = round2(items.reduce((s, it) => s + it.discountAmount, 0));
   const totalGstAmount = round2(items.reduce((s, it) => s + it.gstAmount, 0));
-  const finalAmount = round2(items.reduce((s, it) => s + it.netAmount, 0));
+  const rawFinal = round2(items.reduce((s, it) => s + it.netAmount, 0));
+  // Round to whole rupee matching the backend's grandTotal round-off
+  const finalAmount = Math.round(rawFinal);
 
   const receivedAmount = parseFloat(receivedAmountRaw || '') || 0;
-  // Ensure amountPaid does not exceed finalAmount for accounting purposes (handling change/tendered)
-  // For Cash, we record the actual bill amount as revenue/cash-in-hand, assuming change is returned.
-  let amountPaid = (paymentMethod === 'Cash' && receivedAmount >= finalAmount)
+  // Ensure amountPaid matches the rounded finalAmount when fully paid
+  let amountPaid = (paymentMethod === 'Cash' && (receivedAmount >= finalAmount || receivedAmount === 0))
     ? finalAmount
     : (receivedAmount > 0 ? receivedAmount : finalAmount);
 
@@ -340,13 +341,26 @@ const Billing: React.FC = () => {
   const [paymentReminderEnabled, setPaymentReminderEnabled] = useState(true);
   const [paymentReminderDays, setPaymentReminderDays] = useState(7);
 
-  // Bills loaded on-demand (not from GlobalDataContext to avoid repeated reads)
-  const [localBills, setLocalBills] = useState<any[]>([]);
+  // Bills loaded on-demand with instant localStorage cache fallback
+  const [localBills, setLocalBills] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('RAJU_CACHE_V2_local_bills');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const refreshLocalBills = useCallback(async () => {
     try {
       const res = await billingApi.getAll();
-      setLocalBills(Array.isArray(res) ? res : (res as any)?.data || []);
-    } catch (e) { console.error("Failed to load bills", e); }
+      const bills = Array.isArray(res) ? res : (res as any)?.data || [];
+      if (bills.length > 0) {
+        setLocalBills(bills);
+        try { localStorage.setItem('RAJU_CACHE_V2_local_bills', JSON.stringify(bills)); } catch {}
+      }
+    } catch (e) {
+      console.warn("Failed to refresh bills from server, using cached list:", e);
+    }
   }, []);
   useEffect(() => { refreshLocalBills(); }, [refreshLocalBills]);
 
@@ -1246,8 +1260,14 @@ const Billing: React.FC = () => {
       return createdBill;
     } catch (err: any) {
       console.error("Create bill error:", err);
-      const backendMsg = err.response?.data?.message || err.response?.data?.error;
-      throw new Error(backendMsg || "Failed to create bill");
+      let backendMsg = err.response?.data?.message || err.response?.data?.error;
+      if (typeof err.response?.data === 'string' && err.response.data.trim()) {
+        backendMsg = err.response.data;
+      }
+      if (err.code === 'ECONNABORTED' || err.message?.toLowerCase().includes('timeout')) {
+        backendMsg = "Server took too long to respond. Please check recent bills or try again.";
+      }
+      throw new Error(backendMsg || err.message || "Failed to create bill");
     }
   };
 
@@ -1266,10 +1286,10 @@ const Billing: React.FC = () => {
       gstin: gstNumber || "33BJLPN3590D1Z7",
       pan: "FFFPS9148J",
       state: "Tamil Nadu",
-      bankName: "Karur Vysya Bank",
-      accountNo: "1138011000000155",
-      ifsc: "KVBL0001138",
-      branch: "Kanchipuram"
+      bankName: "",
+      accountNo: "",
+      ifsc: "",
+      branch: ""
     };
     const html = renderToStaticMarkup(
       <ProfessionalTaxInvoice
@@ -1501,10 +1521,10 @@ const Billing: React.FC = () => {
       gstin: gstNumber || "33BJLPN3590D1Z7",
       pan: "FFFPS9148J",
       state: "Tamil Nadu",
-      bankName: "Karur Vysya Bank",
-      accountNo: "1138011000000155",
-      ifsc: "KVBL0001138",
-      branch: "Kanchipuram"
+      bankName: "",
+      accountNo: "",
+      ifsc: "",
+      branch: ""
     };
 
     const printItems = items.map(ui => {
@@ -2559,25 +2579,6 @@ const Billing: React.FC = () => {
 
               {/* Toggles Section */}
               <div className="flex flex-wrap items-center gap-5">
-                {documentMode === 'Billing' && (
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Pricing Rate</span>
-                    <div className="flex p-1 bg-slate-100 border border-slate-200/60 rounded-xl shadow-inner">
-                      <button
-                        onClick={() => setPricingMode('Retail')}
-                        className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${pricingMode === 'Retail' ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
-                      >
-                        RETAIL
-                      </button>
-                      <button
-                        onClick={() => setPricingMode('Wholesale')}
-                        className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${pricingMode === 'Wholesale' ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
-                      >
-                        WHOLESALE
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Document Mode</span>
@@ -2813,7 +2814,7 @@ const Billing: React.FC = () => {
                       value={i.price}
                       onChange={(e) => handlePriceChange(i.barcode, parseFloat(e.target.value) || 0)}
                       onFocus={(e) => (e.target as HTMLInputElement).select()}
-                      className={`border w-24 p-1 rounded mx-auto text-center font-bold ${pricingMode === 'Wholesale' ? 'text-indigo-700 bg-indigo-50 border-indigo-200' : 'text-blue-700 bg-blue-50 border-blue-200'}`}
+                      className="border w-24 p-1 rounded mx-auto text-center font-bold text-blue-700 bg-blue-50 border-blue-200"
                     />
                   </td>
                   <td className="p-2 text-center w-24">

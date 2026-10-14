@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 
 import paymentQR from "../../assets/payment-qr.jpeg";
 
@@ -447,11 +447,11 @@ const ProformaInvoice: React.FC<ProformaInvoiceProps> = ({
                             <tbody>
                                 <tr>
                                     <td style={{ width: '20%', padding: '4px', textAlign: 'center', border: 'none' }}>{paymentQR && <img src={paymentQR} alt="QR" style={{ width: '100px' }} />}</td>
-                                    <td style={{ width: '80%', padding: '8px', border: 'none' }}>
-                                        <div className="font-bold" style={{ textDecoration: 'underline' }}>Company's Bank Details</div>
-                                        <div>Bank Name: <span className="font-bold">{company.bankName}</span></div>
-                                        <div>A/c No: <span className="font-bold">{company.accountNo}</span></div>
-                                        <div>IFSC: <span className="font-bold">{company.ifsc}</span></div>
+                                    <td style={{ width: '80%', padding: '8px', border: 'none', verticalAlign: 'top' }}>
+                                        <div className="font-bold" style={{ textDecoration: 'underline', marginBottom: '4px' }}>Company's Bank Details</div>
+                                        {company.bankName && <div>Bank Name: <span className="font-bold">{company.bankName}</span></div>}
+                                        {company.accountNo && <div>A/c No: <span className="font-bold">{company.accountNo}</span></div>}
+                                        {company.ifsc && <div>IFSC: <span className="font-bold">{company.ifsc}</span></div>}
                                     </td>
                                 </tr>
                             </tbody>

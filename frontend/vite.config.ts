@@ -8,56 +8,37 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 5173,
-    proxy: {
-      "/proxy/products": {
-        target: "https://product-service-492955680725.asia-southeast1.run.app",
+    proxy: (() => {
+      const createProxyConfig = (target: string) => ({
+        target,
         changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/proxy/, "/api"),
+        rewrite: (p: string) => p.replace(/^\/proxy/, "/api"),
         secure: false,
-      },
-      "/proxy/billing": {
-        target: "https://billing-service-492955680725.asia-southeast1.run.app",
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/proxy/, "/api"),
-        secure: false,
-      },
-      "/proxy/reports": {
-        target: "https://billing-service-492955680725.asia-southeast1.run.app",
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/proxy/, "/api"),
-        secure: false,
-      },
-      "/proxy/vendors": {
-        target: "https://vendor-service-492955680725.asia-southeast1.run.app",
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/proxy/, "/api"),
-        secure: false,
-      },
-      "/proxy/customers": {
-        target: "https://vendor-service-492955680725.asia-southeast1.run.app",
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/proxy/, "/api"),
-        secure: false,
-      },
-      "/proxy/broker": {
-        target: "https://vendor-service-492955680725.asia-southeast1.run.app",
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/proxy/, "/api"),
-        secure: false,
-      },
-      "/proxy/chit": {
-        target: "https://vendor-service-492955680725.asia-southeast1.run.app",
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/proxy/, "/api"),
-        secure: false,
-      },
-      "/proxy/staff": {
-        target: "https://staff-service-492955680725.asia-southeast1.run.app",
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/proxy/, "/api"),
-        secure: false,
-      },
-    },
+        headers: {
+          Connection: "keep-alive",
+        },
+        configure: (proxy: any) => {
+          proxy.on("error", (err: any, _req: any, res: any) => {
+            // Gracefully handle Cloud Run idle socket disconnects
+            if (res && !res.headersSent && typeof res.writeHead === "function") {
+              res.writeHead(502, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Proxy connection reset", message: err?.message }));
+            }
+          });
+        },
+      });
+
+      return {
+        "/proxy/products": createProxyConfig("https://product-service-492955680725.asia-southeast1.run.app"),
+        "/proxy/billing": createProxyConfig("https://billing-service-492955680725.asia-southeast1.run.app"),
+        "/proxy/reports": createProxyConfig("https://billing-service-492955680725.asia-southeast1.run.app"),
+        "/proxy/vendors": createProxyConfig("https://vendor-service-492955680725.asia-southeast1.run.app"),
+        "/proxy/customers": createProxyConfig("https://vendor-service-492955680725.asia-southeast1.run.app"),
+        "/proxy/broker": createProxyConfig("https://vendor-service-492955680725.asia-southeast1.run.app"),
+        "/proxy/chit": createProxyConfig("https://vendor-service-492955680725.asia-southeast1.run.app"),
+        "/proxy/staff": createProxyConfig("https://staff-service-492955680725.asia-southeast1.run.app"),
+      };
+    })(),
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

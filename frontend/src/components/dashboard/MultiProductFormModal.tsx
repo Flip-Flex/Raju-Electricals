@@ -301,8 +301,7 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
             case "buy": gstInputRef.current?.focus(); break;
             case "gst": profitInputRef.current?.focus(); break;
             case "profit": priceInputRef.current?.focus(); break;
-            case "selling": wholesalePriceInputRef.current?.focus(); break;
-            case "wholesale": qtyInputRef.current?.focus(); break;
+            case "selling": qtyInputRef.current?.focus(); break;
             case "qty": handleAddProduct(); break;
         }
     };
@@ -1020,7 +1019,6 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                                 <th className="w-16 p-2 text-center">Unit</th>
                                                 <th className="w-20 p-2 text-right">Buy</th>
                                                 <th className="w-20 p-2 text-right">Sell</th>
-                                                <th className="w-20 p-2 text-right">Wholesale</th>
                                                 <th className="w-16 p-2 text-center">Qty</th>
                                                 <th className="w-24 p-2 text-left">HSN/SAC</th>
                                                 <th className="w-16 p-2 text-center">Action</th>
@@ -1058,7 +1056,6 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                                         <td className="p-2 text-center text-xs text-gray-500">{row.unit || 'Nos'}</td>
                                                         <td className="p-2 text-right font-mono text-gray-400">₹{row.purchaseRate}</td>
                                                         <td className="p-2 text-right font-mono font-medium text-green-700">₹{row.price}</td>
-                                                        <td className="p-2 text-right font-mono font-medium text-blue-700">₹{row.wholesalePrice || row.price}</td>
                                                         <td className="p-2 text-center font-bold">
                                                             <input
                                                                 type="number"
@@ -1361,21 +1358,7 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                             />
                                         </div>
 
-                                        <div className="flex flex-col">
-                                            <input
-                                                type="number"
-                                                inputMode="decimal"
-                                                placeholder="Wholesale"
-                                                ref={wholesalePriceInputRef}
-                                                value={currentInput.wholesalePrice || ''}
-                                                onChange={e => handleInputChange('wholesalePrice', parseFloat(e.target.value))}
-                                                onFocus={(e) => (e.target as HTMLInputElement).select()}
-                                                onKeyDown={e => {
-                                                    if (e.key === 'Enter') { e.preventDefault(); focusNext('wholesale'); }
-                                                }}
-                                                className="form-input w-full text-sm text-right font-medium text-blue-600 border-gray-300 placeholder-gray-400"
-                                            />
-                                        </div>
+
 
                                         <div className="flex flex-col">
                                             <input

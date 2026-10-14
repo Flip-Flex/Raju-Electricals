@@ -34,7 +34,11 @@ const StaffTasksView: React.FC<StaffTasksViewProps> = ({
   const safeTasks = Array.isArray(tasks) ? tasks : [];
   const filteredTasks = safeTasks.filter(t => {
     const matchesStaff = selectedStaff
-      ? t.assignedStaffId === selectedStaff.id || t.assignedStaffId === 'ALL'
+      ? (
+          (selectedStaff.id && t.assignedStaffId && String(t.assignedStaffId).trim() === String(selectedStaff.id).trim()) ||
+          (selectedStaff.appUsername && t.assignedStaffId && String(t.assignedStaffId).trim().toLowerCase() === String(selectedStaff.appUsername).trim().toLowerCase()) ||
+          t.assignedStaffId === 'ALL'
+        )
       : true;
     const matchesStatus = statusFilter === 'ALL' ? true : t.status === statusFilter;
     const matchesPriority = priorityFilter === 'ALL' ? true : t.priority === priorityFilter;
@@ -198,9 +202,13 @@ const StaffTasksView: React.FC<StaffTasksViewProps> = ({
           {filteredTasks.map((task) => {
             const isDone = task.status === 'COMPLETED';
             const overdue = isOverdue(task.dueDate, task.status);
+            const assignedStaffObj = staffList.find(s => 
+              (s.id && task.assignedStaffId && String(s.id).trim() === String(task.assignedStaffId).trim()) ||
+              (s.appUsername && task.assignedStaffId && String(s.appUsername).trim().toLowerCase() === String(task.assignedStaffId).trim().toLowerCase())
+            );
             const staffName = task.assignedStaffId === 'ALL'
               ? 'All Staff Members'
-              : (staffList.find(s => s.id === task.assignedStaffId)?.name || task.assignedStaffName || 'Staff');
+              : (assignedStaffObj?.name || task.assignedStaffName || 'Staff');
 
             return (
               <div

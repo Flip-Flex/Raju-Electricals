@@ -236,7 +236,6 @@ const PurchaseHistoryModal = ({ productId: initialProductId, productName: initia
                   <th className="px-4 py-3 border min-w-[120px]">Supplier ID</th>
                   <th className="px-4 py-3 border w-28 text-right">Buy Rate</th>
                   <th className="px-4 py-3 border w-28 text-right">Sell Rate</th>
-                  <th className="px-4 py-3 border w-28 text-right">Wholesale</th>
                   <th className="px-4 py-3 border w-24 text-center">Qty</th>
                   <th className="px-4 py-3 border w-28 text-center">Current Stock</th>
                 </tr>
@@ -250,7 +249,6 @@ const PurchaseHistoryModal = ({ productId: initialProductId, productName: initia
                     <td className="px-4 py-3 border font-mono text-xs text-gray-500">{record.supplierId}</td>
                     <td className="px-4 py-3 border text-right font-mono font-bold text-gray-900">₹{record.purchaseRate}</td>
                     <td className="px-4 py-3 border text-right font-mono text-green-700">₹{record.sellingRate}</td>
-                    <td className="px-4 py-3 border text-right font-mono text-indigo-700">₹{record.wholesaleRate}</td>
                     <td className="px-4 py-3 border text-center font-bold text-gray-700">{record.qty}</td>
                     <td className="px-4 py-3 border text-center font-black text-orange-600">{record.currentStock}</td>
                   </tr>

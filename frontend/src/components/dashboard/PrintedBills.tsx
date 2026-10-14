@@ -313,10 +313,10 @@ const PrintedBills: React.FC = () => {
       gstin: gstNumber || "33BJLPN3590D1Z7",
       pan: "FFFPS9148J",
       state: "Tamil Nadu",
-      bankName: "Karur Vysya Bank",
-      accountNo: "1138011000000155",
-      ifsc: "KVBL0001138",
-      branch: "Kanchipuram"
+      bankName: "",
+      accountNo: "",
+      ifsc: "",
+      branch: ""
     };
 
     let html = "";
@@ -935,10 +935,10 @@ const PrintedBills: React.FC = () => {
                       gstin: gstNumber || "33BJLPN3590D1Z7",
                       pan: "FFFPS9148J",
                       state: "Tamil Nadu",
-                      bankName: "Karur Vysya Bank",
-                      accountNo: "1138011000000155",
-                      ifsc: "KVBL0001138",
-                      branch: "Kanchipuram"
+                      bankName: "",
+                      accountNo: "",
+                      ifsc: "",
+                      branch: ""
                     }}
                     numberToWords={numberToWords}
                   />
@@ -996,10 +996,10 @@ const PrintedBills: React.FC = () => {
                         gstin: gstNumber || "33BJLPN3590D1Z7",
                         pan: "FFFPS9148J",
                         state: "Tamil Nadu",
-                        bankName: "Karur Vysya Bank",
-                        accountNo: "1138011000000155",
-                        ifsc: "KVBL0001138",
-                        branch: "Kanchipuram"
+                        bankName: "",
+                        accountNo: "",
+                        ifsc: "",
+                        branch: ""
                       }}
                       numberToWords={numberToWords}
                     />

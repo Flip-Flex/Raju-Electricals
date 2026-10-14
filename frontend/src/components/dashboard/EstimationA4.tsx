@@ -424,30 +424,10 @@ export const EstimationPrintA4: React.FC<EstimationPrintA4Props> = ({
                     </td>
 
                     <td className="footer-right">
-                      <div className="bank-details-wrapper">
+                      <div className="bank-details-wrapper" style={{ minHeight: '60px' }}>
                         <div style={{ fontWeight: 'bold', borderBottom: '1px solid #000', marginBottom: '3px', display: 'inline-block' }}>
                           Company's Bank Details
                         </div>
-                        <table className="bank-mini-table">
-                          <tbody>
-                            <tr>
-                              <td style={{ width: '45%' }}>A/c Holder's Name </td>
-                              <td style={{ width: '55%', fontWeight: 'bold' }}>: Raju Electricals</td>
-                            </tr>
-                            <tr>
-                              <td>Bank Name </td>
-                              <td>: Karur Vysya Bank</td>
-                            </tr>
-                            <tr>
-                              <td>A/c No </td>
-                              <td>: 1138 0110 0000 0155</td>
-                            </tr>
-                            <tr>
-                              <td>Branch & IFSC Code </td>
-                              <td>: Kanchipuram & KVBL0001138</td>
-                            </tr>
-                          </tbody>
-                        </table>
                       </div>
 
                       <div className="signature-section">

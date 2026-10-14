@@ -6,8 +6,8 @@ export const APP_CONFIG = {
     CONTACT_NO: "9626956999",
     GSTIN: "33BJLPN3590D1Z7",
     ACCOUNT_NAME: "Raju Electricals",
-    ACCOUNT_NO: "1138 0110 0000 0155",
-    BANK_NAME: "Karur Vysya Bank",
-    BRANCH_NAME: "Kanchipuram",
-    IFSC_CODE: "KVBL0001138"
+    ACCOUNT_NO: "",
+    BANK_NAME: "",
+    BRANCH_NAME: "",
+    IFSC_CODE: ""
 };

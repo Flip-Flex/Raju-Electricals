@@ -8,13 +8,60 @@ const BILLING_SERVICE_URL = isDev ? '/proxy' : 'https://billing-service-49295568
 const VENDOR_SERVICE_URL = isDev ? '/proxy' : 'https://vendor-service-492955680725.asia-southeast1.run.app/api';
 const REPORT_SERVICE_URL = isDev ? '/proxy' : 'https://billing-service-492955680725.asia-southeast1.run.app/api';
 const STAFF_SERVICE_URL = isDev ? '/proxy' : 'https://staff-service-492955680725.asia-southeast1.run.app/api';
+
+const DIRECT_URLS: Record<string, string> = {
+  product: 'https://product-service-492955680725.asia-southeast1.run.app/api',
+  billing: 'https://billing-service-492955680725.asia-southeast1.run.app/api',
+  vendor: 'https://vendor-service-492955680725.asia-southeast1.run.app/api',
+  report: 'https://billing-service-492955680725.asia-southeast1.run.app/api',
+  staff: 'https://staff-service-492955680725.asia-southeast1.run.app/api',
+  customer: 'https://vendor-service-492955680725.asia-southeast1.run.app/api',
+};
+
 // --- Create a separate Axios instance for each service ---
-const productService = axios.create({ baseURL: PRODUCT_SERVICE_URL, timeout: 15000 });
-const billingService = axios.create({ baseURL: BILLING_SERVICE_URL, timeout: 15000 });
-const vendorService = axios.create({ baseURL: VENDOR_SERVICE_URL, timeout: 15000 });
-const reportService = axios.create({ baseURL: REPORT_SERVICE_URL, timeout: 15000 });
-const staffService = axios.create({ baseURL: STAFF_SERVICE_URL, timeout: 15000 });
-const customerService = axios.create({ baseURL: VENDOR_SERVICE_URL, timeout: 15000 }); // Note: Customer service typically shares Vendor service URL based on original code
+// 60s timeout to safely handle Cloud Run container cold starts (15-25s) without aborting
+const productService = axios.create({ baseURL: PRODUCT_SERVICE_URL, timeout: 60000 });
+const billingService = axios.create({ baseURL: BILLING_SERVICE_URL, timeout: 60000 });
+const vendorService = axios.create({ baseURL: VENDOR_SERVICE_URL, timeout: 60000 });
+const reportService = axios.create({ baseURL: REPORT_SERVICE_URL, timeout: 60000 });
+const staffService = axios.create({ baseURL: STAFF_SERVICE_URL, timeout: 60000 });
+const customerService = axios.create({ baseURL: VENDOR_SERVICE_URL, timeout: 60000 }); // Note: Customer service typically shares Vendor service URL based on original code
+
+// --- Resilient Retry Interceptor: Auto-recovers if Vite local dev proxy resets socket ---
+const attachRetryInterceptor = (instance: any, serviceKey: string) => {
+  instance.interceptors.response.use(
+    (response: any) => response,
+    async (error: any) => {
+      const config = error.config;
+      if (!config || config.__isRetry) {
+        return Promise.reject(error);
+      }
+
+      const status = error.response?.status;
+      const isRetryableStatus = status === 500 || status === 502 || status === 503 || status === 504;
+      const isNetworkError = !error.response || error.code === 'ERR_NETWORK' || error.message?.includes('socket') || error.message?.includes('Network Error');
+
+      if (isRetryableStatus || isNetworkError) {
+        config.__isRetry = true;
+        // In dev mode, if the Vite proxy dropped socket or threw 500, switch directly to Cloud Run HTTPS URL (which supports CORS)
+        if (isDev && DIRECT_URLS[serviceKey]) {
+          config.baseURL = DIRECT_URLS[serviceKey];
+        }
+        await new Promise((res) => setTimeout(res, 300));
+        return instance(config);
+      }
+
+      return Promise.reject(error);
+    }
+  );
+};
+
+attachRetryInterceptor(productService, 'product');
+attachRetryInterceptor(billingService, 'billing');
+attachRetryInterceptor(vendorService, 'vendor');
+attachRetryInterceptor(reportService, 'report');
+attachRetryInterceptor(staffService, 'staff');
+attachRetryInterceptor(customerService, 'customer');
 
 // --- Create a reusable interceptor to attach the auth token ---
 const authInterceptor = async (config: any) => {
@@ -83,6 +130,10 @@ export interface Staff {
   accountNumber?: string;
   ifscCode?: string;
   commissionPercentage?: number;
+  appUsername?: string;
+  appPassword?: string;
+  appLocation?: string;
+  active?: boolean;
 }
 
 export interface Role {
@@ -110,15 +161,32 @@ export interface Attendance {
 export const staffApi = {
   // Staff Management
   getAll: async () => {
-    const res = await staffService.get<Staff[]>('/staff/all');
-    if (Array.isArray(res.data)) {
-      res.data = res.data.map((s: any) => ({
-        ...s,
-        id: s.id || s._id || '',
-        isActive: s.isActive !== undefined ? s.isActive : (s.active !== undefined ? s.active : true)
-      }));
+    try {
+      const res = await staffService.get<Staff[]>('/staff/all');
+      if (Array.isArray(res.data)) {
+        res.data = res.data.map((s: any) => ({
+          ...s,
+          id: s.id || s._id || '',
+          isActive: s.isActive !== undefined ? s.isActive : (s.active !== undefined ? s.active : true)
+        }));
+        try {
+          localStorage.setItem('cashier_staff_cache', JSON.stringify(res.data));
+        } catch {}
+      }
+      return res;
+    } catch (err) {
+      // Offline / network failure fallback: read from cached directory
+      try {
+        const cached = localStorage.getItem('cashier_staff_cache') || localStorage.getItem('RAJU_CACHE_V2_global_staff');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return { data: parsed } as any;
+          }
+        }
+      } catch {}
+      throw err;
     }
-    return res;
   },
   getById: async (id: string) => {
     const res = await staffService.get<Staff>(`/staff/${id}`);
@@ -175,6 +243,9 @@ export const staffApi = {
     staffService.patch(`/staff/commissions/${id}/pay${paymentMethod ? `?paymentMethod=${paymentMethod}` : ''}`),
 
   // Self Attendance (Cashier geo-mark)
+  login: (credentials: { username: string; password: string }) =>
+    staffService.post<{ staffId: string; name: string; phone: string; role: string; token: string }>('/staff/auth/login', credentials),
+
   selfMarkAttendance: (data: { staffId: string; date: string; latitude: number; longitude: number }) =>
     staffService.post('/staff/attendance/self-mark', data),
 

@@ -66,7 +66,7 @@ const DashboardOverview = () => {
         }
         
       } catch (error) {
-        console.error("Failed to fetch dashboard data:", error);
+        console.warn("DayBook summary unavailable, continuing with bills data:", error);
       } finally {
         setLoading(false);
       }
@@ -160,36 +160,54 @@ const filteredProducts = products;
 
   useEffect(() => {
     const fetchChartData = async () => {
+      let rawData: any[] = [];
+      let totalExp = 0;
+
       try {
         const res = await daybookApi.getRange(startDate, endDate);
-        const rawData = res.data?.chartData || res.data?.dailyBreakdown || [];
-
-        const totalExp = res.data?.totalExpense !== undefined 
+        rawData = res.data?.chartData || res.data?.dailyBreakdown || [];
+        totalExp = res.data?.totalExpense !== undefined 
           ? res.data.totalExpense 
           : rawData.reduce((sum: number, d: any) => sum + (d.expense || 0), 0);
-        setTotalExpenseAmount(totalExp);
-
-        const start = startOfDay(new Date(startDate));
-
-        const dayData = aggregateChartData('day', rawData, start);
-        const weekData = aggregateChartData('week', rawData, start);
-        const monthData = aggregateChartData('month', rawData, start);
-        const yearData = aggregateChartData('year', rawData, start);
-
-        setAllPeriodsData({ day: dayData, week: weekData, month: monthData, year: yearData });
-
-        // Update the main chart view
-        if (dashboardView === 'day') setChartDataFetched(dayData);
-        else if (dashboardView === 'week') setChartDataFetched(weekData);
-        else if (dashboardView === 'month') setChartDataFetched(monthData);
-        else if (dashboardView === 'year') setChartDataFetched(yearData);
-
       } catch (err) {
-        console.log("Chart data fetch issue: ", err);
+        // Fallback: Compute chart data directly from filteredBills and loaded expenses
+        const dailyMap = new Map<string, { date: string; income: number; expense: number }>();
+        filteredBills.forEach(b => {
+          const d = format(new Date(b.createdAt || new Date()), 'yyyy-MM-dd');
+          const amt = Number(b.finalAmount || b.amountPaid || 0);
+          const curr = dailyMap.get(d) || { date: d, income: 0, expense: 0 };
+          curr.income += amt;
+          dailyMap.set(d, curr);
+        });
+        expenses.forEach(e => {
+          const d = e.date ? format(new Date(e.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
+          const amt = Number(e.amount || 0);
+          totalExp += amt;
+          const curr = dailyMap.get(d) || { date: d, income: 0, expense: 0 };
+          curr.expense += amt;
+          dailyMap.set(d, curr);
+        });
+        rawData = Array.from(dailyMap.values());
       }
+
+      setTotalExpenseAmount(totalExp);
+      const start = startOfDay(new Date(startDate));
+
+      const dayData = aggregateChartData('day', rawData, start);
+      const weekData = aggregateChartData('week', rawData, start);
+      const monthData = aggregateChartData('month', rawData, start);
+      const yearData = aggregateChartData('year', rawData, start);
+
+      setAllPeriodsData({ day: dayData, week: weekData, month: monthData, year: yearData });
+
+      // Update the main chart view
+      if (dashboardView === 'day') setChartDataFetched(dayData);
+      else if (dashboardView === 'week') setChartDataFetched(weekData);
+      else if (dashboardView === 'month') setChartDataFetched(monthData);
+      else if (dashboardView === 'year') setChartDataFetched(yearData);
     };
     fetchChartData();
-  }, [dashboardView, startDate, endDate]);
+  }, [dashboardView, startDate, endDate, filteredBills, expenses]);
 
 
 
@@ -664,7 +682,7 @@ const filteredProducts = products;
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm lg:col-span-2">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-slate-800 text-lg">Earnings vs Expenses</h3>
+            <h3 className="font-bold text-slate-800 text-lg">Income vs Expenses</h3>
           </div>
           <div className="h-[300px]">
             {chartDataFetched.length === 0 ? (
@@ -679,7 +697,7 @@ const filteredProducts = products;
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={(v) => `₹${v / 1000}k`} dx={-10} />
                   <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                   <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} verticalAlign="top" />
-                  <Bar dataKey="income" name="Earnings" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  <Bar dataKey="income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
                   <Bar dataKey="expense" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
                 </BarChart>
               </ResponsiveContainer>
@@ -1342,7 +1360,7 @@ const filteredProducts = products;
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="date" tick={{fontSize: 9}} />
                   <YAxis tick={{fontSize: 9}} tickFormatter={(v) => `₹${v/1000}k`} />
-                  <Bar dataKey="income" name="Earnings" fill="#10b981" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="income" name="Income" fill="#10b981" radius={[3, 3, 0, 0]} />
                   <Bar dataKey="expense" name="Expenses" fill="#ef4444" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </div>

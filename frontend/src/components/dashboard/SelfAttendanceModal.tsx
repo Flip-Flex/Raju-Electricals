@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { staffApi, Staff } from '@/lib/api';
+import { useGlobalData } from '@/context/GlobalDataContext';
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
 import { MapPin, CheckCircle, Loader2, X, Eye, EyeOff, Lock, User } from 'lucide-react';
@@ -10,7 +11,18 @@ interface SelfAttendanceModalProps {
 }
 
 const SelfAttendanceModal: React.FC<SelfAttendanceModalProps> = ({ isOpen, onClose }) => {
-    const [staffList, setStaffList] = useState<Staff[]>([]);
+    const { staff: globalStaff } = useGlobalData();
+    const [staffList, setStaffList] = useState<Staff[]>(() => {
+        if (globalStaff && globalStaff.length > 0) return globalStaff;
+        try {
+            const cached = localStorage.getItem('cashier_staff_cache') || localStorage.getItem('RAJU_CACHE_V2_global_staff');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+        } catch {}
+        return [];
+    });
     const [loadingStaff, setLoadingStaff] = useState(false);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -21,9 +33,13 @@ const SelfAttendanceModal: React.FC<SelfAttendanceModalProps> = ({ isOpen, onClo
         if (isOpen) {
             const savedUsername = localStorage.getItem('cashier_username');
             if (savedUsername) setUsername(savedUsername);
+
+            if (globalStaff && globalStaff.length > 0) {
+                setStaffList(globalStaff.filter((s: Staff) => (s.isActive !== false && (s as any).active !== false)));
+            }
             fetchStaff();
         }
-    }, [isOpen]);
+    }, [isOpen, globalStaff]);
 
     useEffect(() => {
         setPassword('');
@@ -31,107 +47,162 @@ const SelfAttendanceModal: React.FC<SelfAttendanceModalProps> = ({ isOpen, onClo
 
     const fetchStaff = async () => {
         try {
-            setLoadingStaff(true);
+            if (staffList.length === 0) setLoadingStaff(true);
             const res = await staffApi.getAll();
-            // Filter to only show Active Cashiers or all active staff depending on preference
-            // For now, let's just show active staff to allow anyone logging into this terminal to mark
-            const activeStaff = res.data.filter((s: Staff) => s.isActive);
+            const staffData = Array.isArray(res.data) ? res.data : [];
+            const activeStaff = staffData.filter((s: Staff) => (s.isActive !== false && (s as any).active !== false));
             setStaffList(activeStaff);
+            try {
+                localStorage.setItem('cashier_staff_cache', JSON.stringify(activeStaff));
+            } catch {}
         } catch (error) {
-            console.error("Failed to load staff", error);
-            toast.error("Failed to load staff directory");
+            console.warn("Could not refresh staff directory from network:", error);
+            if (staffList.length === 0) {
+                toast.error("Could not load staff directory. Please check network connection.");
+            }
         } finally {
             setLoadingStaff(false);
         }
     };
 
-    const handleMarkAttendance = () => {
-        if (!username || !password) {
+    const handleMarkAttendance = async () => {
+        const cleanUser = username.trim();
+        const cleanPass = password.trim();
+
+        if (!cleanUser || !cleanPass) {
             toast.error("Please enter both username and password");
             return;
         }
 
-        const selectedStaff = staffList.find(s => s.appUsername === username && s.appPassword === password);
-        
-        if (!selectedStaff) {
-            toast.error("Invalid username or password");
-            return;
-        }
-
         setMarking(true);
-        localStorage.setItem('cashier_username', username);
 
-        if (!navigator.geolocation) {
-            toast.error("Geolocation is not supported by your browser");
-            setMarking(false);
-            return;
-        }
+        try {
+            // 1. First attempt: match against active staff directory (case-insensitive for username, name, phone, or id)
+            const cleanUserLower = cleanUser.toLowerCase();
+            const matchedStaff = staffList.find(s => {
+                const uMatch =
+                    (s.appUsername && s.appUsername.trim().toLowerCase() === cleanUserLower) ||
+                    (s.name && s.name.trim().toLowerCase() === cleanUserLower) ||
+                    (s.phone && s.phone.trim() === cleanUser) ||
+                    (s.id && s.id.trim().toLowerCase() === cleanUserLower);
 
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                const today = format(new Date(), 'yyyy-MM-dd');
+                const pMatch =
+                    (s.appPassword && s.appPassword.trim() === cleanPass) ||
+                    (s.phone && s.phone.trim() === cleanPass);
 
+                return uMatch && pMatch;
+            });
+
+            let staffId = matchedStaff?.id;
+            let staffName = matchedStaff?.name;
+
+            // 2. If not matched in local cache, authenticate directly against backend staff auth API
+            if (!staffId) {
                 try {
-                    // Match office coordinates: fetch backend's expected coordinates (or local cache)
-                    const settingsRes = await staffApi.getSettings().catch(() => null);
-                    let backendLat = settingsRes?.data?.latitude;
-                    let backendLng = settingsRes?.data?.longitude;
-
-                    if (!backendLat || !backendLng) {
-                        try {
-                            const cached = localStorage.getItem('raju_office_location_v1');
-                            if (cached) {
-                                const parsed = JSON.parse(cached);
-                                backendLat = parsed.latitude;
-                                backendLng = parsed.longitude;
-                            }
-                        } catch {}
+                    let loginRes = await staffApi.login({ username: cleanUser, password: cleanPass }).catch(() => null);
+                    // If failed and not uppercase, try uppercase (e.g. JUSTIN JEEVA in database)
+                    if (!loginRes?.data?.staffId && cleanUser !== cleanUser.toUpperCase()) {
+                        loginRes = await staffApi.login({ username: cleanUser.toUpperCase(), password: cleanPass }).catch(() => null);
                     }
 
-                    backendLat = backendLat || position.coords.latitude;
-                    backendLng = backendLng || position.coords.longitude;
-
-                    await staffApi.selfMarkAttendance({
-                        staffId: selectedStaff.id,
-                        date: today,
-                        latitude: backendLat,
-                        longitude: backendLng
-                    });
-                    toast.success("Attendance marked successfully!");
-                    onClose();
-                } catch (error: any) {
-                    console.error("Self mark error:", error);
-                    const msg = error.response?.data?.message || "Failed to mark attendance.";
-                    const distance = error.response?.data?.distance;
-                    const radius = error.response?.data?.allowedRadius;
-                    
-                    if (distance !== undefined && radius !== undefined) {
-                        toast.error(
-                            `${msg}. You are ${distance}m away (Max allowed: ${radius}m). If this is incorrect, please update the Office Location in Admin Settings.`, 
-                            { duration: 6000 }
-                        );
-                    } else {
-                        toast.error(msg);
+                    if (loginRes?.data?.staffId) {
+                        staffId = loginRes.data.staffId;
+                        staffName = loginRes.data.name || cleanUser;
                     }
-                } finally {
-                    setMarking(false);
+                } catch (authErr) {
+                    console.warn("Direct backend login error:", authErr);
                 }
-            },
-            (error) => {
-                console.error("Geolocation error:", error);
-                let errorMsg = "Failed to get your location.";
-                if (error.code === 1) {
-                    errorMsg = "Location permission denied. Please tap the lock icon (🔒) in your browser's address bar → Allow Location, then try again.";
-                } else if (error.code === 2) {
-                    errorMsg = "Location unavailable. Please turn ON your device's GPS/Location Services and try again.";
-                } else if (error.code === 3) {
-                    errorMsg = "Location request timed out. Please ensure GPS is on and try again.";
-                }
-                toast.error(errorMsg, { duration: 6000 });
+            }
+
+            if (!staffId) {
+                toast.error("Invalid username or password. Please verify credentials in Staff Management.");
                 setMarking(false);
-            },
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-        );
+                return;
+            }
+
+            localStorage.setItem('cashier_username', cleanUser);
+
+            if (!navigator.geolocation) {
+                toast.error("Geolocation is not supported by your browser");
+                setMarking(false);
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    const today = format(new Date(), 'yyyy-MM-dd');
+
+                    try {
+                        // Match office coordinates: fetch backend's expected coordinates (or local cache)
+                        const settingsRes = await staffApi.getSettings().catch(() => null);
+                        let backendLat = settingsRes?.data?.latitude;
+                        let backendLng = settingsRes?.data?.longitude;
+
+                        if (!backendLat || !backendLng) {
+                            try {
+                                const cached = localStorage.getItem('raju_office_location_v1');
+                                if (cached) {
+                                    const parsed = JSON.parse(cached);
+                                    backendLat = parsed.latitude;
+                                    backendLng = parsed.longitude;
+                                }
+                            } catch {}
+                        }
+
+                        backendLat = backendLat || position.coords.latitude;
+                        backendLng = backendLng || position.coords.longitude;
+
+                        const markRes = await staffApi.selfMarkAttendance({
+                            staffId: staffId!,
+                            date: today,
+                            latitude: backendLat,
+                            longitude: backendLng
+                        });
+
+                        if (markRes?.data?.alreadyMarked) {
+                            toast.success(`Already marked today at ${markRes.data.inTime || 'earlier'}!`, { duration: 4000 });
+                        } else {
+                            toast.success(`Attendance marked successfully for ${staffName || 'Staff'}!`);
+                        }
+                        onClose();
+                    } catch (error: any) {
+                        console.error("Self mark error:", error);
+                        const msg = error.response?.data?.message || "Failed to mark attendance.";
+                        const distance = error.response?.data?.distance;
+                        const radius = error.response?.data?.allowedRadius;
+                        
+                        if (distance !== undefined && radius !== undefined) {
+                            toast.error(
+                                `${msg}. You are ${distance}m away (Max allowed: ${radius}m). If this is incorrect, please update the Office Location in Admin Settings.`, 
+                                { duration: 6000 }
+                            );
+                        } else {
+                            toast.error(msg);
+                        }
+                    } finally {
+                        setMarking(false);
+                    }
+                },
+                (error) => {
+                    console.error("Geolocation error:", error);
+                    let errorMsg = "Failed to get your location.";
+                    if (error.code === 1) {
+                        errorMsg = "Location permission denied. Please tap the lock icon (🔒) in your browser's address bar → Allow Location, then try again.";
+                    } else if (error.code === 2) {
+                        errorMsg = "Location unavailable. Please turn ON your device's GPS/Location Services and try again.";
+                    } else if (error.code === 3) {
+                        errorMsg = "Location request timed out. Please ensure GPS is on and try again.";
+                    }
+                    toast.error(errorMsg, { duration: 6000 });
+                    setMarking(false);
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        } catch (error) {
+            console.error("Punch in error:", error);
+            toast.error("Failed to punch in. Please try again.");
+            setMarking(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -168,7 +239,7 @@ const SelfAttendanceModal: React.FC<SelfAttendanceModalProps> = ({ isOpen, onClo
                                         type="text"
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value)}
-                                        placeholder="Enter your app username"
+                                        placeholder="Staff Name, Phone, or Username"
                                         className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 bg-gray-50 shadow-sm"
                                         disabled={marking}
                                     />
@@ -184,7 +255,7 @@ const SelfAttendanceModal: React.FC<SelfAttendanceModalProps> = ({ isOpen, onClo
                                             type={showPassword ? 'text' : 'password'}
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
-                                            placeholder="Enter your app password"
+                                            placeholder="Password or Phone Number"
                                             className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 bg-gray-50 shadow-sm"
                                             disabled={marking}
                                         />
@@ -196,6 +267,9 @@ const SelfAttendanceModal: React.FC<SelfAttendanceModalProps> = ({ isOpen, onClo
                                             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                                         </button>
                                     </div>
+                                    <p className="text-[11px] text-gray-400 mt-1.5">
+                                        Login credentials can be viewed or changed in Staff Management → Edit Staff.
+                                    </p>
                                 </div>
                             </>
                         )}

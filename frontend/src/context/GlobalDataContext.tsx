@@ -102,7 +102,7 @@ export const GlobalDataProvider = ({ children }: { children: React.ReactNode }) 
         isSyncing: syncingBills,
         refresh: refreshBills,
         mutate: mutateBills
-    } = useCachedResource<Bill[]>('global_bills', billingApi.getAll, { skip: !user, initialData: [], ttl: 0 }); // Fetch fresh bills on mount
+    } = useCachedResource<Bill[]>('global_bills', billingApi.getAll, { skip: !user, initialData: [], ttl: 60 * 1000 }); // Instant cache with 1m background refresh
 
     const loading = loadingProducts || loadingCustomers || loadingVendors || loadingStaff || loadingBrokers || loadingBills;
     const isSyncing = syncingProducts || syncingCustomers || syncingVendors || syncingStaff || syncingBrokers || syncingBills;
