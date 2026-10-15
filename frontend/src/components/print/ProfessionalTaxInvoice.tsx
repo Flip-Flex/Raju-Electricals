@@ -145,20 +145,6 @@ const ProfessionalTaxInvoice: React.FC<ProfessionalTaxInvoiceProps> = ({
                 </tbody>
             </table>
 
-            <table className="invoice-table" style={{ border: 'none', marginTop: '2px' }}>
-                <tbody>
-                    <tr>
-                        <td style={{ width: '70%', border: 'none', padding: '0' }}>
-                            IRN: {bill.irn || ''}<br />Ack No: {bill.ackNo || ''}<br />Ack Date: {bill.ackDate || ''}
-                        </td>
-                        <td style={{ width: '30%', textAlign: 'right', border: 'none', padding: '0' }}>
-                            <div style={{ fontSize: '10px', marginBottom: '2px' }}>e-Invoice</div>
-                            <div className="qr-box"></div>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-
             <table className="invoice-table" style={{ marginTop: '2px', border: '1px solid #000' }}>
                 <tbody>
                     <tr>
