@@ -431,10 +431,33 @@ const PrintedBills: React.FC = () => {
     const deleteType = isProforma ? 'proforma' : isEstimation ? 'estimation' : 'bill';
     
     if (!window.confirm(`Are you sure you want to delete this ${deleteType} ${billId}? This will revert products and remove related reports.`)) return;
+
+    // Save previous snapshot for rollback if network fails
+    const previousBills = [...bills];
+    const deletedBill = bills.find(b => b.id === billId || b.invoiceId === billId);
+
+    // 1. INSTANT OPTIMISTIC UI: Remove from list in 0ms so user never waits
+    setBills(prev => prev.filter(b => b.id !== billId && b.invoiceId !== billId));
+
+    // Immediately restore stock in local state
+    if (deletedBill?.items?.length) {
+      mutateProducts(prev =>
+        prev.map(product => {
+          const billItem = deletedBill.items.find(
+            (i: any) => i.productId === product.id || i.productName === product.name
+          );
+          if (!billItem) return product;
+          return {
+            ...product,
+            stockQuantity: (product.stockQuantity || 0) + (billItem.quantity || 0)
+          };
+        })
+      );
+    }
+
+    const toastId = toast.loading(`Deleting ${deleteType} ${billId}...`);
     
     try {
-      setIsProcessing(true);
-      
       if (isProforma) {
         await proformaApi.delete(bill.invoiceId || bill.id);
       } else if (isEstimation) {
@@ -443,32 +466,12 @@ const PrintedBills: React.FC = () => {
         await billingService.delete(`/billing/delete/${billId}`);
       }
 
-      // Optimistic: remove from local list instantly
-      const deletedBill = bills.find(b => b.id === billId || b.invoiceId === billId);
-      setBills(prev => prev.filter(b => b.id !== billId && b.invoiceId !== billId));
-
-      // Optimistic: restore stock for deleted bill's items
-      if (deletedBill?.items?.length) {
-        mutateProducts(prev =>
-          prev.map(product => {
-            const billItem = deletedBill.items.find(
-              (i: any) => i.productId === product.id || i.productName === product.name
-            );
-            if (!billItem) return product;
-            return {
-              ...product,
-              stockQuantity: (product.stockQuantity || 0) + (billItem.quantity || 0)
-            };
-          })
-        );
-      }
-
-      toast.success("Bill deleted successfully");
+      toast.success(`${deleteType.toUpperCase()} deleted successfully`, { id: toastId });
     } catch (error) {
       console.error("Delete failed", error);
-      toast.error("Failed to delete bill");
-    } finally {
-      setIsProcessing(false);
+      // Rollback UI if delete failed
+      setBills(previousBills);
+      toast.error(`Failed to delete ${deleteType}. Restored.`, { id: toastId });
     }
   };
 

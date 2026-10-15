@@ -383,43 +383,35 @@ const Products = () => {
 
   const handleDeleteProduct = (id: string) => {
     confirmAction('Are you sure you want to delete this product? This will remove it from stock and update supplier credits if linked.', async () => {
-      setIsLoading(true);
-      try {
-        const product = globalProducts.find(p => p.id === id);
+      const previousProducts = [...globalProducts];
+      const product = globalProducts.find(p => p.id === id);
 
-        // 1. Handle Supplier Credit Update
+      // Instant Optimistic UI: Remove product from table in 0ms
+      mutateProducts(prev => prev.filter(p => p.id !== id));
+      const toastId = toast.loading("Deleting product...");
+
+      try {
+        // 1. Handle Supplier Credit Update in background
         if (product && product.vendorId) {
           try {
             const creditsRes = await vendorApi.getCredits(product.vendorId);
             const credits = creditsRes.data || [];
 
-            // Find linked transaction:
-            // Priority 1: Direct ID Match
             let tx = credits.find((t: any) => product.creditTransactionId && t.id === product.creditTransactionId);
-
-            // Priority 2: Scan 'products' array in transactions if not found by ID
             if (!tx) {
               tx = credits.find((t: any) => t.products && Array.isArray(t.products) && t.products.some((pr: any) => pr.id === id));
             }
 
             if (tx) {
-              // Calculate deduction amount
-              // If the transaction has a product list, we should remove THIS product from it.
-              // If it's a simple amount transaction, we subtract the product's value.
-
               const newProducts = tx.products || [];
               const productInTxIndex = newProducts.findIndex((pr: any) => pr.id === id);
 
               let deduction = 0;
-
               if (productInTxIndex !== -1) {
-                // Determine deduction from the specific entry in the transaction if possible
                 const pEntry = newProducts[productInTxIndex];
                 deduction = (pEntry.purchaseRate || product.purchaseRate || 0) * (pEntry.stockQuantity || product.stockQuantity || 0);
-                // Remove from list
                 newProducts.splice(productInTxIndex, 1);
               } else {
-                // Fallback if not in list but linked by ID: deduct full value of current product
                 deduction = (product.purchaseRate || 0) * (product.stockQuantity || 0);
               }
 
@@ -428,31 +420,25 @@ const Products = () => {
 
               if (newAmount <= 0) {
                 await vendorApi.deleteCredit(tx.id!);
-                toast.success("Removed empty supplier credit transaction.");
               } else {
-                // Update with new amount AND new product list
                 await vendorApi.updateCredit(tx.id!, {
                   amount: newAmount,
                   balance: newBalance,
-                  products: newProducts // Update the reference list
+                  products: newProducts
                 } as any);
-                toast.success("Updated supplier credit transaction.");
               }
             }
           } catch (e) {
             console.error("Credit update failed", e);
-            toast.error("Product deleted, but failed to update supplier credits.");
           }
         }
 
         // 2. Delete Product
         await productApi.delete(id);
-        mutateProducts(prev => prev.filter(product => product.id !== id));
-        toast.success("Product deleted successfully.");
+        toast.success("Product deleted successfully.", { id: toastId });
       } catch (err: any) {
-        toast.error(`Delete failed: ${err.message}`);
-      } finally {
-        setIsLoading(false);
+        mutateProducts(previousProducts);
+        toast.error(`Delete failed: ${err.message}`, { id: toastId });
       }
     }, 'Delete Product');
   };
@@ -1081,6 +1067,7 @@ const Products = () => {
                       </>
                     )}
                     <th className="p-4">Selling Price</th>
+                    {!isCashier && <th className="p-4 text-right">Margin</th>}
                     {!isCashier && <th className="p-4">GST</th>}
                     <th className="p-4">Stock</th>{!isCashier && <th className="p-4 sticky right-0 bg-gray-50 z-10 border-l border-gray-200 shadow-[-4px_0_10px_rgba(0,0,0,0.05)]">Action</th>}
                   </tr>
@@ -1183,6 +1170,29 @@ const Products = () => {
                             />
                           </td>
 
+                          {/* Margin (Admin Only) */}
+                          {!isCashier && (
+                            <td className="p-4 text-right font-mono">
+                              {(() => {
+                                const buy = parseFloat(editForm.purchaseRate as any) || 0;
+                                const sell = parseFloat(editForm.price as any) || 0;
+                                const profit = sell - buy;
+                                const marginPct = buy > 0 ? ((profit / buy) * 100).toFixed(1) : (sell > 0 ? '100' : '0');
+                                const isPositive = profit >= 0;
+                                return (
+                                  <div className="flex flex-col items-end leading-tight">
+                                    <span className={`text-xs font-bold ${isPositive ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                      {isPositive ? '+' : ''}₹{profit.toFixed(2)}
+                                    </span>
+                                    <span className={`text-[10px] font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                      {isPositive ? '+' : ''}{marginPct}%
+                                    </span>
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                          )}
+
                           {/* GST (Admin Only) */}
                           {!isCashier && (
                             <td className="p-4">
@@ -1251,6 +1261,27 @@ const Products = () => {
                           </>
                         )}
                         <td className="p-4 font-semibold">₹{product.price.toFixed(2)}</td>
+                        {!isCashier && (
+                          <td className="p-4 text-right font-mono">
+                            {(() => {
+                              const buy = product.purchaseRate || 0;
+                              const sell = product.price || 0;
+                              const profit = sell - buy;
+                              const marginPct = buy > 0 ? ((profit / buy) * 100).toFixed(1) : (sell > 0 ? '100' : '0');
+                              const isPositive = profit >= 0;
+                              return (
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span className={`text-xs font-bold ${isPositive ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                    {isPositive ? '+' : ''}₹{profit.toFixed(2)}
+                                  </span>
+                                  <span className={`text-[10px] font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                    {isPositive ? '+' : ''}{marginPct}%
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </td>
+                        )}
                         {!isCashier && <td className="p-4">{product.purchaseGst}%</td>}
                         <td className="p-4 font-bold">{formatQty(product.stockQuantity)}</td>
                         {!isCashier && (
@@ -1345,8 +1376,8 @@ const ProductFormModal = ({ product, categories, vendors, onSave, onClose, defau
     const selling = toNumber(formData.price);
 
     if (!buying) {
-      if (toNumber(formData.price) !== 0 || toNumber(formData.profit) !== 0) {
-        setFormData(prev => ({ ...prev, price: 0, profit: 0 }));
+      if (toNumber(formData.profit) !== 0) {
+        setFormData(prev => ({ ...prev, profit: 0 }));
       }
       return;
     }
@@ -1355,12 +1386,9 @@ const ProductFormModal = ({ product, categories, vendors, onSave, onClose, defau
     const buyingWithGST = buying * gstMultiplier;
 
     if (lastEdited === "PURCHASE_RATE" || lastEdited === "GST") {
-      if (profitPercent) {
-        const newSelling = buyingWithGST * (1 + profitPercent / 100);
-        if (toNumber(formData.price).toFixed(2) !== newSelling.toFixed(2)) {
-          setFormData(prev => ({ ...prev, price: parseFloat(newSelling.toFixed(2)) }));
-        }
-      } else if (selling) {
+      // Do NOT auto-fill selling price when editing purchase rate!
+      // If selling price has already been entered, update the profit percentage:
+      if (selling > 0 && buyingWithGST > 0) {
         const newProfit = ((selling - buyingWithGST) / buyingWithGST) * 100;
         if (toNumber(formData.profit).toFixed(2) !== newProfit.toFixed(2)) {
           setFormData(prev => ({ ...prev, profit: parseFloat(newProfit.toFixed(2)) }));
@@ -1450,6 +1478,28 @@ const ProductFormModal = ({ product, categories, vendors, onSave, onClose, defau
             <div>
               <label>Selling Price (₹)</label>
               <input ref={sellingPriceRef} name="price" type="number" value={formData.price} onChange={handleChange} onKeyDown={(e) => handleEnter(e, stockRef)} className="form-input mt-1 font-semibold" />
+            </div>
+            <div>
+              <label className="text-gray-700">Margin Amount (₹)</label>
+              {(() => {
+                const buy = parseFloat(formData.purchaseRate as any) || 0;
+                const sell = parseFloat(formData.price as any) || 0;
+                const profit = sell - buy;
+                const isPositive = profit >= 0;
+                const hasValues = buy > 0 || sell > 0;
+                return (
+                  <div className={`mt-1 h-[42px] px-3 rounded-lg border flex items-center justify-between font-mono font-bold text-sm ${
+                    !hasValues
+                      ? 'bg-gray-50 border-gray-200 text-gray-400'
+                      : isPositive
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-rose-50 border-rose-300 text-rose-800'
+                  }`}>
+                    <span className="text-xs uppercase tracking-wide opacity-80">Margin:</span>
+                    <span>{!hasValues ? '₹0.00' : `${isPositive ? '+' : ''}₹${profit.toFixed(2)}`}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 

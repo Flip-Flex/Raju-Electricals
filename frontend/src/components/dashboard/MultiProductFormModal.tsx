@@ -154,10 +154,8 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
         if (lastEdited === "DATABASE") return;
 
         if (!buying) {
-            if (calculatedSellingPrice !== 0 || profitPercent !== 0) {
-                setCalculatedSellingPrice(0);
+            if (profitPercent !== 0 && profitPercent !== "") {
                 setProfitPercent(0);
-                handleInputChange('price', 0);
             }
             return;
         }
@@ -186,13 +184,9 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                 handleInputChange('purchaseRate', parseFloat(currentBuyInclGst.toFixed(2)));
             }
 
-            if (profitP !== 0 || profitPercent !== "") {
-                const newSelling = currentBuyInclGst * (1 + profitP / 100);
-                if (selling.toFixed(2) !== newSelling.toFixed(2)) {
-                    setCalculatedSellingPrice(parseFloat(newSelling.toFixed(2)));
-                    handleInputChange('price', parseFloat(newSelling.toFixed(2)));
-                }
-            } else if (selling !== 0) {
+            // DO NOT auto-fill selling price when entering or changing buying rate!
+            // If selling price has already been entered, update the profit % based on the new buy rate:
+            if (selling > 0 && currentBuyInclGst > 0) {
                 const newProfit = ((selling - currentBuyInclGst) / currentBuyInclGst) * 100;
                 if (toNumber(profitPercent).toFixed(2) !== newProfit.toFixed(2)) {
                     setProfitPercent(parseFloat(newProfit.toFixed(2)));
@@ -1019,6 +1013,7 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                                 <th className="w-16 p-2 text-center">Unit</th>
                                                 <th className="w-20 p-2 text-right">Buy</th>
                                                 <th className="w-20 p-2 text-right">Sell</th>
+                                                <th className="w-24 p-2 text-right">Margin</th>
                                                 <th className="w-16 p-2 text-center">Qty</th>
                                                 <th className="w-24 p-2 text-left">HSN/SAC</th>
                                                 <th className="w-16 p-2 text-center">Action</th>
@@ -1027,7 +1022,7 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                         <tbody>
                                             {addedProducts.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={8} className="py-12 text-center text-gray-400">
+                                                    <td colSpan={10} className="py-12 text-center text-gray-400">
                                                         <div className="flex flex-col items-center justify-center">
                                                             <Layers size={32} className="mb-2 opacity-20" />
                                                             <p className="text-sm">Added products will appear here</p>
@@ -1056,6 +1051,25 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                                         <td className="p-2 text-center text-xs text-gray-500">{row.unit || 'Nos'}</td>
                                                         <td className="p-2 text-right font-mono text-gray-400">₹{row.purchaseRate}</td>
                                                         <td className="p-2 text-right font-mono font-medium text-green-700">₹{row.price}</td>
+                                                        <td className="p-2 text-right font-mono">
+                                                            {(() => {
+                                                                const buy = Number(row.purchaseRate) || 0;
+                                                                const sell = Number(row.price) || 0;
+                                                                const profit = sell - buy;
+                                                                const marginPct = buy > 0 ? ((profit / buy) * 100).toFixed(1) : (sell > 0 ? '100' : '0');
+                                                                const isPositive = profit >= 0;
+                                                                return (
+                                                                    <div className="flex flex-col items-end leading-tight">
+                                                                        <span className={`text-xs font-bold ${isPositive ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                                                            {isPositive ? '+' : ''}₹{profit.toFixed(2)}
+                                                                        </span>
+                                                                        <span className={`text-[10px] font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                                                            {isPositive ? '+' : ''}{marginPct}%
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </td>
                                                         <td className="p-2 text-center font-bold">
                                                             <input
                                                                 type="number"
@@ -1358,7 +1372,37 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                             />
                                         </div>
 
+                                        {/* Margin / Profit Preview */}
+                                        <div className="flex flex-col">
+                                            {(() => {
+                                                const curSelling = parseFloat(isSellingManual ? String(currentInput.price || 0) : String(calculatedSellingPrice || 0)) || 0;
+                                                const curBuy = parseFloat(String(buyAfterGst || 0)) || 0;
+                                                const curProfit = curSelling - curBuy;
+                                                const curMarginPct = curBuy > 0 ? ((curProfit / curBuy) * 100).toFixed(1) : (curSelling > 0 ? '100' : '0');
+                                                const hasValues = curSelling > 0 || curBuy > 0;
+                                                const isPositive = curProfit >= 0;
 
+                                                return (
+                                                    <div 
+                                                        title={`Margin: ₹${curProfit.toFixed(2)} (${curMarginPct}%)`}
+                                                        className={`h-[38px] px-2 py-0.5 rounded border flex flex-col justify-center items-center text-center transition-all ${
+                                                            !hasValues 
+                                                                ? 'bg-gray-50 border-gray-200 text-gray-400' 
+                                                                : isPositive 
+                                                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800' 
+                                                                    : 'bg-rose-50 border-rose-300 text-rose-800'
+                                                        }`}
+                                                    >
+                                                        <span className="text-[9px] font-bold uppercase tracking-wider leading-none mb-0.5 opacity-75">
+                                                            Margin
+                                                        </span>
+                                                        <span className="text-xs font-black font-mono leading-none">
+                                                            {!hasValues ? '₹0.00' : `${isPositive ? '+' : ''}₹${curProfit.toFixed(2)}`}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
 
                                         <div className="flex flex-col">
                                             <input
@@ -1397,9 +1441,26 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                             </div>
 
                             {/* Footer Actions */}
-                            <div className="pt-2.5 border-t flex justify-between items-center bg-white shrink-0">
-                                <div className="text-sm text-gray-500">
-                                    Total Items: <span className="font-bold text-gray-800">{addedProducts.length + (currentInput.name ? 1 : 0)}</span> | Total Purchase: <span className="font-bold text-green-600">₹{totalPurchaseValue.toFixed(2)}</span>
+                            <div className="pt-2.5 border-t flex flex-wrap justify-between items-center bg-white shrink-0 gap-2">
+                                <div className="text-sm text-gray-600 flex flex-wrap items-center gap-2 sm:gap-3">
+                                    <span>Total Items: <span className="font-bold text-gray-800">{addedProducts.length + (currentInput.name ? 1 : 0)}</span></span>
+                                    <span className="text-gray-300">|</span>
+                                    <span>Total Purchase: <span className="font-bold text-blue-600">₹{totalPurchaseValue.toFixed(2)}</span></span>
+                                    <span className="text-gray-300">|</span>
+                                    <span>Total Selling: <span className="font-bold text-indigo-600">₹{totalSellingValue.toFixed(2)}</span></span>
+                                    <span className="text-gray-300">|</span>
+                                    {(() => {
+                                        const totalMargin = totalSellingValue - totalPurchaseValue;
+                                        const totalMarginPct = totalPurchaseValue > 0 ? ((totalMargin / totalPurchaseValue) * 100).toFixed(1) : '0';
+                                        const isPos = totalMargin >= 0;
+                                        return (
+                                            <span>
+                                                Total Margin: <span className={`font-bold ${isPos ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                                    {isPos ? '+' : ''}₹{totalMargin.toFixed(2)} ({isPos ? '+' : ''}{totalMarginPct}%)
+                                                </span>
+                                            </span>
+                                        );
+                                    })()}
                                 </div>
                                 <div className="flex gap-3">
                                     <button
