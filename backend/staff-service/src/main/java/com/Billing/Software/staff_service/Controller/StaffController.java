@@ -64,9 +64,11 @@ public class StaffController {
 
     // --- ATTENDANCE ---
     @PostMapping("/attendance/mark-bulk")
+    @PreAuthorize("hasRole('ADMIN')")
     public void markBulk(@RequestBody List<AttendanceRequest> reqs) throws Exception { service.markAttendanceBulk(reqs); }
 
     @PostMapping("/attendance/mark")
+    @PreAuthorize("hasRole('ADMIN')")
     public void markSingle(@RequestBody AttendanceRequest req) throws Exception { service.markAttendanceSingle(req); }
 
     @GetMapping("/attendance/day/{date}")
@@ -84,12 +86,14 @@ public class StaffController {
 
     // --- COMMISSION ENDPOINTS ---
     @PostMapping("/commissions/add")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
     public ResponseEntity<?> addCommission(@RequestBody Map<String, Object> data) throws Exception {
         service.addCommission(data);
         return ResponseEntity.ok(Map.of("message", "Staff commission recorded successfully"));
     }
 
     @DeleteMapping("/commissions/bill/{billId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
     public ResponseEntity<?> deleteCommissionsByBillId(@PathVariable String billId) throws Exception {
         service.deleteCommissionsByBillId(billId);
         return ResponseEntity.ok(Map.of("message", "Staff commissions deleted"));
@@ -97,6 +101,7 @@ public class StaffController {
 
     // --- SALARY ENDPOINT ---
     @GetMapping("/salary/{staffId}/{yearMonth}")
+    @PreAuthorize("hasRole('ADMIN')")
     public SalarySlip getSalarySlip(
             @PathVariable String staffId,
             @PathVariable String yearMonth) throws Exception {
@@ -112,6 +117,7 @@ public class StaffController {
     }
 
     @GetMapping("/commissions/all")
+    @PreAuthorize("hasRole('ADMIN')")
     public List<Map<String, Object>> getAllCommissions() throws Exception {
         return service.getAllCommissions();
     }
@@ -126,6 +132,7 @@ public class StaffController {
     // ==================== APP SETTINGS ====================
 
     @GetMapping("/settings")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'STAFF')")
     public AppSettings getAppSettings() throws Exception {
         return service.getAppSettings();
     }
@@ -176,6 +183,7 @@ public class StaffController {
     // ==================== AUTO-ABSENT ====================
 
     @PostMapping("/attendance/auto-absent/{date}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> autoMarkAbsent(@PathVariable String date) throws Exception {
         service.autoMarkAbsent(date);
         return ResponseEntity.ok(Map.of("message", "Auto-absent marking completed for " + date));
@@ -184,11 +192,13 @@ public class StaffController {
     // ==================== STAFF PROFILE & MY DATA ====================
 
     @GetMapping("/{id}/profile")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
     public Map<String, Object> getStaffProfile(@PathVariable String id) throws Exception {
         return service.getStaffProfile(id);
     }
 
     @GetMapping("/{id}/my-attendance/{yearMonth}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
     public Map<String, Object> getMyAttendance(
             @PathVariable String id,
             @PathVariable String yearMonth) throws Exception {
@@ -196,6 +206,7 @@ public class StaffController {
     }
 
     @GetMapping("/{id}/my-salary/{yearMonth}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
     public SalarySlip getMySalary(
             @PathVariable String id,
             @PathVariable String yearMonth) throws Exception {

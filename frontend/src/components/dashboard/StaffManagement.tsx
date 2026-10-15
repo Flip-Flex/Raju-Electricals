@@ -883,10 +883,12 @@ const DirectoryView = ({
                                     <div className="min-w-0">
                                         <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Bank Details</div>
                                         <div className="font-medium text-gray-800 text-xs font-mono truncate">
-                                            <span className="text-gray-400 font-sans text-[10px] mr-1">A/C:</span>{selectedStaff.accountNumber || 'N/A'}
+                                            <span className="text-gray-400 font-sans text-[10px] mr-1">A/C:</span>
+                                            {isAdmin ? (selectedStaff.accountNumber || 'N/A') : (selectedStaff.accountNumber ? '••••••••' + selectedStaff.accountNumber.slice(-4) : 'N/A')}
                                         </div>
                                         <div className="text-[10px] text-gray-500 font-mono truncate">
-                                            <span className="text-gray-400 font-sans text-[10px] mr-1">IFSC:</span>{selectedStaff.ifscCode || 'N/A'}
+                                            <span className="text-gray-400 font-sans text-[10px] mr-1">IFSC:</span>
+                                            {isAdmin ? (selectedStaff.ifscCode || 'N/A') : (selectedStaff.ifscCode ? '••••' + selectedStaff.ifscCode.slice(-4) : 'N/A')}
                                         </div>
                                     </div>
                                 </div>
@@ -902,12 +904,14 @@ const DirectoryView = ({
                         </div>
 
                         {/* 2. Stats Cards */}
-                        <div className="grid grid-cols-3 gap-2.5 shrink-0">
-                            <div className="bg-white p-2.5 rounded-xl shadow-2xs border border-gray-200 border-l-3 border-l-blue-500">
-                                <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider">Monthly Base Salary</div>
-                                <div className="text-base font-bold text-blue-700 font-mono mt-0.5">₹{(selectedStaff.baseSalary || 0).toLocaleString()}</div>
-                                <div className="text-[10px] text-gray-400">Fixed compensation</div>
-                            </div>
+                        <div className={`grid ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} gap-2.5 shrink-0`}>
+                            {isAdmin && (
+                                <div className="bg-white p-2.5 rounded-xl shadow-2xs border border-gray-200 border-l-3 border-l-blue-500">
+                                    <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider">Monthly Base Salary</div>
+                                    <div className="text-base font-bold text-blue-700 font-mono mt-0.5">₹{(selectedStaff.baseSalary || 0).toLocaleString()}</div>
+                                    <div className="text-[10px] text-gray-400">Fixed compensation</div>
+                                </div>
+                            )}
                             <div className="bg-white p-2.5 rounded-xl shadow-2xs border border-gray-200 border-l-3 border-l-emerald-500">
                                 <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider">This Month Incentives</div>
                                 <div className="text-base font-bold text-emerald-700 font-mono mt-0.5">₹{incentive.toLocaleString()}</div>
