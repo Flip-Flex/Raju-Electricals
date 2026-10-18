@@ -1,6 +1,7 @@
 package com.Billing.Software.vendor_service.Service;
 
 import com.Billing.Software.vendor_service.Entity.PaymentHistoryEntry;
+import com.Billing.Software.vendor_service.Entity.PurchaseReturn;
 import com.Billing.Software.vendor_service.Entity.Vendor;
 import com.Billing.Software.vendor_service.Entity.VendorTransaction;
 import com.google.cloud.firestore.*;
@@ -22,6 +23,7 @@ public class VendorService {
     private static final String COL_VENDORS = "vendors";
     private static final String COL_TX = "vendor_transactions";
     private static final String COL_COUNTERS = "_counters";
+    private static final String COL_PURCHASE_RETURNS = "purchase_returns";
 
     // =========================================================================
     // PRIVATE SEQUENCE HELPER
@@ -275,6 +277,73 @@ public class VendorService {
         if (!docRef.get().get().exists())
             throw new NoSuchElementException("Transaction not found");
         docRef.delete().get();
+    }
+
+    // =========================================================================
+    // PURCHASE RETURN LOGIC
+    // =========================================================================
+
+    public String processPurchaseReturn(PurchaseReturn purchaseReturn) throws Exception {
+        String prId = generateSequenceId("pr_count", "PR-", 5);
+        purchaseReturn.setId(prId);
+        purchaseReturn.setReturnDate(new Date());
+        purchaseReturn.setStatus("COMPLETED");
+
+        DocumentReference txRef = firestore.collection(COL_TX).document(purchaseReturn.getTransactionId());
+
+        firestore.runTransaction(transaction -> {
+            DocumentSnapshot snapshot = transaction.get(txRef).get();
+            if (!snapshot.exists())
+                throw new NoSuchElementException("Transaction not found with ID: " + purchaseReturn.getTransactionId());
+
+            VendorTransaction tx = snapshot.toObject(VendorTransaction.class);
+
+            purchaseReturn.setPreviousAmount(tx.getAmount());
+            purchaseReturn.setPreviousBalance(tx.getBalance());
+
+            double newAmount = Math.max(0, tx.getAmount() - purchaseReturn.getTotalReturnAmount());
+            double newBalance = Math.max(0, newAmount - tx.getPaidAmount());
+            String newStatus = newBalance <= 0 ? "PAID" : (tx.getPaidAmount() > 0 ? "PARTIAL" : "PENDING");
+
+            purchaseReturn.setNewAmount(newAmount);
+            purchaseReturn.setNewBalance(newBalance);
+
+            Map<String, Object> txUpdates = new HashMap<>();
+            txUpdates.put("amount", newAmount);
+            txUpdates.put("balance", newBalance);
+            txUpdates.put("status", newStatus);
+            transaction.update(txRef, txUpdates);
+
+            DocumentReference prRef = firestore.collection(COL_PURCHASE_RETURNS).document(prId);
+            transaction.set(prRef, purchaseReturn);
+
+            return null;
+        }).get();
+
+        return prId;
+    }
+
+    public List<PurchaseReturn> getPurchaseReturnsByDateRange(Date startDate, Date endDate) throws Exception {
+        Calendar c = Calendar.getInstance();
+        c.setTime(endDate);
+        c.add(Calendar.DATE, 1);
+        Date adjustedEndDate = c.getTime();
+
+        return firestore.collection(COL_PURCHASE_RETURNS)
+                .whereGreaterThanOrEqualTo("returnDate", startDate)
+                .whereLessThan("returnDate", adjustedEndDate)
+                .orderBy("returnDate", Query.Direction.ASCENDING)
+                .get().get().getDocuments().stream()
+                .map(d -> d.toObject(PurchaseReturn.class))
+                .collect(Collectors.toList());
+    }
+
+    public List<PurchaseReturn> getPurchaseReturnsByTransaction(String transactionId) throws Exception {
+        return firestore.collection(COL_PURCHASE_RETURNS)
+                .whereEqualTo("transactionId", transactionId)
+                .get().get().getDocuments().stream()
+                .map(d -> d.toObject(PurchaseReturn.class))
+                .collect(Collectors.toList());
     }
 
 }

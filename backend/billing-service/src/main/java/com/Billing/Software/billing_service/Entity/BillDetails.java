@@ -21,6 +21,11 @@ public class BillDetails {
     private String hsnsac;
     private String colourCode;
 
+    // --- SALES RETURN TRACKING ---
+    // Quantity of this line already returned via Sales Return. Remaining returnable = quantity - returnedQty
+    private int returnedQty;
+    // ---------------------------------
+
     // --- NEW TAX BREAKDOWN FIELDS ---
     private BigDecimal taxableValue;
     private BigDecimal cgstPercent;

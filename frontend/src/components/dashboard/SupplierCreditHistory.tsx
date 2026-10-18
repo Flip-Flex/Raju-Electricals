@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { vendorApi, CreditTransaction } from '@/lib/api';
-import { CreditCard, Download, Filter, Search, RefreshCw, X } from 'lucide-react';
+import { vendorApi, productApi, CreditTransaction, PurchaseReturn } from '@/lib/api';
+import { CreditCard, Download, Filter, Search, RefreshCw, X, RotateCcw } from 'lucide-react';
 import { utils, writeFile } from 'xlsx';
 import { startOfMonth, endOfMonth, format, startOfYear, endOfDay } from 'date-fns';
 import { toast } from 'react-hot-toast';
@@ -44,7 +44,7 @@ const formatDateSafe = (tx: CreditTransaction) => {
 };
 
 const SupplierCreditHistory = () => {
-    const { vendors } = useGlobalData();
+    const { vendors, products, purchaseReturns, mutatePurchaseReturns, refreshPurchaseReturns } = useGlobalData();
     const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
     const [loading, setLoading] = useState(false);
 
@@ -76,6 +76,20 @@ const SupplierCreditHistory = () => {
         remarks: ''
     });
     const [isProcessing, setIsProcessing] = useState(false);
+
+    // Purchase Return Modal State
+    const [returnModal, setReturnModal] = useState<{ open: boolean; tab: 'search' | 'history' }>({ open: false, tab: 'search' });
+    const [returnSearch, setReturnSearch] = useState('');
+    const [returnSearchResults, setReturnSearchResults] = useState<CreditTransaction[]>([]);
+    const [selectedReturnTx, setSelectedReturnTx] = useState<CreditTransaction | null>(null);
+    const [returnProducts, setReturnProducts] = useState<{ productId: string; name: string; maxQty: number; returnQty: number; purchaseRate: number }[]>([]);
+    const [returnRemarks, setReturnRemarks] = useState('');
+    const [isProcessingReturn, setIsProcessingReturn] = useState(false);
+    const [returnDateRange, setReturnDateRange] = useState({
+        start: format(startOfYear(new Date()), 'yyyy-MM-dd'),
+        end: format(endOfDay(new Date()), 'yyyy-MM-dd')
+    });
+    const [returnHistorySearch, setReturnHistorySearch] = useState('');
 
     useEffect(() => {
         fetchTransactions();
@@ -174,6 +188,140 @@ const SupplierCreditHistory = () => {
         return vendors.find(v => v.id === id)?.name || 'Unknown Vendor';
     };
 
+    // ------------------------------------------------------------------
+    // Purchase Return helpers
+    // ------------------------------------------------------------------
+    const handleReturnSearch = (query: string) => {
+        setReturnSearch(query);
+        const q = query.toLowerCase().trim();
+        if (!q) {
+            setReturnSearchResults([]);
+            return;
+        }
+        const results = transactions.filter(tx => {
+            const vendorName = getVendorName(tx.vendorId).toLowerCase();
+            const billNo = (tx.invoice || '').toLowerCase();
+            return vendorName.includes(q) || billNo.includes(q);
+        });
+        setReturnSearchResults(results);
+    };
+
+    const handleSelectReturnTx = (tx: CreditTransaction) => {
+        setSelectedReturnTx(tx);
+        // Prefer the products still attached to this transaction, else match the
+        // product master by the transaction they were purchased on.
+        const attached = (tx.products || []).map(p => ({
+            productId: p.id,
+            name: p.name,
+            maxQty: Number(p.stockQuantity) || 0,
+            returnQty: 0,
+            purchaseRate: Number(p.purchaseRate) || 0
+        }));
+
+        if (attached.length > 0) {
+            setReturnProducts(attached);
+        } else {
+            const billProducts = (products || []).filter(p => p.creditTransactionId === tx.id);
+            setReturnProducts(billProducts.map(p => ({
+                productId: p.id,
+                name: p.name,
+                maxQty: Number(p.stockQuantity) || 0,
+                returnQty: 0,
+                purchaseRate: Number(p.purchaseRate) || 0
+            })));
+        }
+        setReturnRemarks('');
+    };
+
+    const handleReturnQtyChange = (index: number, qty: number) => {
+        setReturnProducts(prev => prev.map((p, i) => {
+            if (i === index) {
+                const clampedQty = Math.max(0, Math.min(qty, p.maxQty));
+                return { ...p, returnQty: clampedQty };
+            }
+            return p;
+        }));
+    };
+
+    const totalReturnAmount = returnProducts.reduce((sum, p) => sum + (p.returnQty * p.purchaseRate), 0);
+
+    const handleProcessReturn = async () => {
+        if (!selectedReturnTx || !selectedReturnTx.id) return;
+
+        const productsToReturn = returnProducts.filter(p => p.returnQty > 0);
+        if (productsToReturn.length === 0) {
+            toast.error("Please select at least one product to return");
+            return;
+        }
+
+        const totalAmount = productsToReturn.reduce((sum, p) => sum + (p.returnQty * p.purchaseRate), 0);
+
+        setIsProcessingReturn(true);
+        try {
+            const purchaseReturn: PurchaseReturn = {
+                transactionId: selectedReturnTx.id,
+                vendorId: selectedReturnTx.vendorId || '',
+                vendorName: getVendorName(selectedReturnTx.vendorId),
+                invoice: selectedReturnTx.invoice || '',
+                returnDate: new Date().toISOString(),
+                returnedProducts: productsToReturn.map(p => ({
+                    productId: p.productId,
+                    name: p.name,
+                    returnedQty: p.returnQty,
+                    purchaseRate: p.purchaseRate,
+                    amount: p.returnQty * p.purchaseRate
+                })),
+                totalReturnAmount: totalAmount,
+                previousAmount: selectedReturnTx.amount,
+                newAmount: Math.max(0, selectedReturnTx.amount - totalAmount),
+                previousBalance: selectedReturnTx.balance,
+                newBalance: Math.max(0, selectedReturnTx.balance - totalAmount),
+                status: 'COMPLETED',
+                remarks: returnRemarks
+            };
+
+            const res = await vendorApi.addPurchaseReturn(purchaseReturn);
+            const prId = res.data?.id || `PR-${Date.now()}`;
+
+            // Deduct stock for each returned product
+            for (const p of productsToReturn) {
+                try {
+                    await productApi.updateStock(p.productId, -p.returnQty, null);
+                } catch (err) {
+                    console.error(`Failed to update stock for product ${p.productId}`, err);
+                }
+            }
+
+            // Optimistically add to cached purchase returns
+            mutatePurchaseReturns(prev => [{ ...purchaseReturn, id: prId }, ...(prev || [])]);
+
+            // Update local transaction state
+            const newAmount = Math.max(0, selectedReturnTx.amount - totalAmount);
+            const newBalance = Math.max(0, selectedReturnTx.balance - totalAmount);
+            setTransactions(prev => prev.map(t => {
+                if (t.id === selectedReturnTx.id) {
+                    return {
+                        ...t,
+                        amount: newAmount,
+                        balance: newBalance,
+                        status: newBalance <= 0 ? 'PAID' : t.status
+                    };
+                }
+                return t;
+            }));
+
+            toast.success(`Purchase return of ₹${totalAmount.toLocaleString()} processed successfully`);
+            setSelectedReturnTx(null);
+            setReturnProducts([]);
+            setReturnRemarks('');
+        } catch (error) {
+            console.error("Purchase return failed", error);
+            toast.error("Failed to process purchase return");
+        } finally {
+            setIsProcessingReturn(false);
+        }
+    };
+
     const filteredTransactions = transactions.filter(tx => {
         if (selectedVendor !== 'ALL' && tx.vendorId !== selectedVendor) return false;
         if (statusFilter !== 'ALL' && tx.status !== statusFilter) return false;
@@ -245,6 +393,19 @@ const SupplierCreditHistory = () => {
                 <div className="flex space-x-2">
                     <button onClick={fetchTransactions} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600">
                         <RefreshCw size={20} />
+                    </button>
+                    <button
+                        onClick={() => {
+                            setReturnModal({ open: true, tab: 'search' });
+                            setReturnSearch('');
+                            setReturnSearchResults([]);
+                            setSelectedReturnTx(null);
+                            setReturnProducts([]);
+                        }}
+                        className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition shadow-sm"
+                    >
+                        <RotateCcw size={20} />
+                        <span>Purchase Return</span>
                     </button>
                     <button onClick={exportToExcel} className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition shadow-sm">
                         <Download size={20} />
@@ -644,6 +805,408 @@ const SupplierCreditHistory = () => {
                             >
                                 Close Ledger
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Purchase Return Modal */}
+            {returnModal.open && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 transition-all duration-300">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[85vw] max-h-[92vh] overflow-hidden ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-200 flex flex-col">
+
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-6 py-5 text-white relative flex-shrink-0">
+                            <div className="absolute top-0 right-0 p-4 opacity-10">
+                                <RotateCcw size={80} />
+                            </div>
+                            <div className="flex justify-between items-start">
+                                <div className="relative z-10">
+                                    <h2 className="text-xl font-bold tracking-tight">Purchase Return</h2>
+                                    <p className="text-blue-100 text-sm mt-1 opacity-90">Search purchases and process returns</p>
+                                </div>
+                                <button
+                                    onClick={() => setReturnModal({ open: false, tab: 'search' })}
+                                    className="relative z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-all duration-200"
+                                >
+                                    <X size={18} strokeWidth={3} />
+                                </button>
+                            </div>
+                            <div className="flex space-x-2 mt-4 relative z-10">
+                                <button
+                                    onClick={() => setReturnModal({ ...returnModal, tab: 'search' })}
+                                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${returnModal.tab === 'search'
+                                        ? 'bg-white text-blue-600 shadow-lg'
+                                        : 'bg-white/20 text-white hover:bg-white/30'
+                                        }`}
+                                >
+                                    Search & Return
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setReturnModal({ ...returnModal, tab: 'history' });
+                                        refreshPurchaseReturns();
+                                    }}
+                                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${returnModal.tab === 'history'
+                                        ? 'bg-white text-blue-600 shadow-lg'
+                                        : 'bg-white/20 text-white hover:bg-white/30'
+                                        }`}
+                                >
+                                    Return History
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto p-6">
+                            {returnModal.tab === 'search' ? (
+                                <div>
+                                    {/* Search Input */}
+                                    {!selectedReturnTx && (
+                                        <div className="mb-6">
+                                            <div className="relative">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                                                <input
+                                                    type="text"
+                                                    className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-xl pl-10 pr-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-0 outline-none transition-all text-sm"
+                                                    placeholder="Search by bill number or supplier name..."
+                                                    autoFocus
+                                                    value={returnSearch}
+                                                    onChange={e => handleReturnSearch(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Search Results Table */}
+                                    {returnSearchResults.length > 0 && !selectedReturnTx && (
+                                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm text-left text-gray-500">
+                                                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                                                        <tr>
+                                                            <th className="px-4 py-3">Date</th>
+                                                            <th className="px-4 py-3">Supplier</th>
+                                                            <th className="px-4 py-3">Bill No</th>
+                                                            <th className="px-4 py-3 text-right">Amount</th>
+                                                            <th className="px-4 py-3 text-right">Paid</th>
+                                                            <th className="px-4 py-3 text-right">Balance</th>
+                                                            <th className="px-4 py-3 text-center">Status</th>
+                                                            <th className="px-4 py-3 text-center">Action</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {returnSearchResults.map((tx, idx) => (
+                                                            <tr key={idx} className="bg-white border-b hover:bg-slate-50/80 transition-colors duration-150">
+                                                                <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
+                                                                    {formatDateSafe(tx)}
+                                                                </td>
+                                                                <td className="px-4 py-3 font-medium text-blue-600">{getVendorName(tx.vendorId)}</td>
+                                                                <td className="px-4 py-3 font-mono text-gray-600">{tx.invoice || '-'}</td>
+                                                                <td className="px-4 py-3 text-right text-gray-900">₹{tx.amount.toLocaleString()}</td>
+                                                                <td className="px-4 py-3 text-right text-green-600 font-semibold">₹{tx.paidAmount.toLocaleString()}</td>
+                                                                <td className="px-4 py-3 text-right text-red-600 font-semibold">₹{tx.balance.toLocaleString()}</td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <span className={`text-[10px] px-2 py-0.5 rounded border font-black uppercase ${tx.status === 'PAID'
+                                                                        ? 'bg-green-50 text-green-700 border-green-200'
+                                                                        : tx.status === 'PENDING'
+                                                                            ? 'bg-red-50 text-red-700 border-red-200'
+                                                                            : 'bg-orange-50 text-orange-700 border-orange-200'
+                                                                        }`}>
+                                                                        {tx.status}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <button
+                                                                        onClick={() => handleSelectReturnTx(tx)}
+                                                                        className="px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition shadow-sm"
+                                                                    >
+                                                                        Select
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Selected Transaction Return Form */}
+                                    {selectedReturnTx && (
+                                        <div>
+                                            {/* Summary Cards */}
+                                            <div className="grid grid-cols-4 gap-4 mb-6">
+                                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 shadow-sm">
+                                                    <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Bill</p>
+                                                    <p className="text-lg font-bold text-slate-800 font-mono">₹{selectedReturnTx.amount.toLocaleString()}</p>
+                                                </div>
+                                                <div className="bg-green-50/50 p-4 rounded-xl border border-green-100 shadow-sm">
+                                                    <p className="text-[10px] text-green-600 uppercase font-bold tracking-wider">Paid</p>
+                                                    <p className="text-lg font-bold text-green-600 font-mono">₹{selectedReturnTx.paidAmount.toLocaleString()}</p>
+                                                </div>
+                                                <div className="bg-rose-50/50 p-4 rounded-xl border border-rose-100 shadow-sm">
+                                                    <p className="text-[10px] text-rose-600 uppercase font-bold tracking-wider">Pending</p>
+                                                    <p className="text-lg font-bold text-rose-600 font-mono">₹{selectedReturnTx.balance.toLocaleString()}</p>
+                                                </div>
+                                                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 shadow-sm">
+                                                    <p className="text-[10px] text-blue-600 uppercase font-bold tracking-wider">Last Payment</p>
+                                                    <p className="text-lg font-bold text-blue-600 font-mono">{selectedReturnTx.paymentMode || 'CREDIT'}</p>
+                                                </div>
+                                            </div>
+
+                                            {/* Supplier Info Bar */}
+                                            <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 mb-6 flex items-center justify-between">
+                                                <div>
+                                                    <span className="text-sm font-bold text-blue-800">{getVendorName(selectedReturnTx.vendorId)}</span>
+                                                    <span className="mx-2 text-blue-300">•</span>
+                                                    <span className="text-sm font-mono text-blue-600">Bill: {selectedReturnTx.invoice || 'N/A'}</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedReturnTx(null);
+                                                        setReturnProducts([]);
+                                                        setReturnRemarks('');
+                                                    }}
+                                                    className="text-xs text-blue-600 font-bold hover:underline"
+                                                >
+                                                    Change Selection
+                                                </button>
+                                            </div>
+
+                                            {/* Products Table */}
+                                            {returnProducts.length > 0 ? (
+                                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                                                    <div className="overflow-x-auto">
+                                                        <table className="w-full text-sm text-left text-gray-500">
+                                                            <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                                                                <tr>
+                                                                    <th className="px-4 py-3">Product Name</th>
+                                                                    <th className="px-4 py-3 text-right">Purchase Rate</th>
+                                                                    <th className="px-4 py-3 text-center">Available Stock</th>
+                                                                    <th className="px-4 py-3 text-center">Return Qty</th>
+                                                                    <th className="px-4 py-3 text-right">Return Amount</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {returnProducts.map((p, idx) => (
+                                                                    <tr key={idx} className="bg-white border-b hover:bg-slate-50/80 transition-colors duration-150">
+                                                                        <td className="px-4 py-3 font-medium text-gray-900">{p.name}</td>
+                                                                        <td className="px-4 py-3 text-right font-mono text-gray-600">₹{p.purchaseRate.toLocaleString()}</td>
+                                                                        <td className="px-4 py-3 text-center">
+                                                                            <span className="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-0.5 rounded">
+                                                                                {p.maxQty}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="px-4 py-3 text-center">
+                                                                            <input
+                                                                                type="number"
+                                                                                min={0}
+                                                                                max={p.maxQty}
+                                                                                value={p.returnQty || ''}
+                                                                                placeholder="0"
+                                                                                className="w-20 border-2 border-slate-100 bg-slate-50/50 rounded-lg px-3 py-1.5 text-center text-sm focus:bg-white focus:border-blue-500 focus:ring-0 outline-none transition-all font-bold"
+                                                                                onChange={e => handleReturnQtyChange(idx, parseInt(e.target.value) || 0)}
+                                                                            />
+                                                                        </td>
+                                                                        <td className="px-4 py-3 text-right font-bold text-blue-600 font-mono">
+                                                                            ₹{(p.returnQty * p.purchaseRate).toLocaleString()}
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 text-center text-yellow-700 text-sm mb-6">
+                                                    No products found for this transaction. Please select a transaction with recorded products.
+                                                </div>
+                                            )}
+
+                                            {/* Remarks */}
+                                            <div className="mb-6">
+                                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Remarks (Optional)</label>
+                                                <textarea
+                                                    className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-xl p-3 text-sm focus:bg-white focus:border-blue-500 focus:ring-0 outline-none transition-all min-h-[80px]"
+                                                    placeholder="Add notes about this return..."
+                                                    value={returnRemarks}
+                                                    onChange={e => setReturnRemarks(e.target.value)}
+                                                />
+                                            </div>
+
+                                            {/* Bottom Bar */}
+                                            <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-100 flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold text-gray-600">Total Return:</span>
+                                                    <span className="text-xl font-black text-blue-600 font-mono">₹{totalReturnAmount.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex gap-3">
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedReturnTx(null);
+                                                            setReturnProducts([]);
+                                                            setReturnRemarks('');
+                                                        }}
+                                                        className="px-6 py-2.5 text-sm font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all duration-200"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        onClick={handleProcessReturn}
+                                                        disabled={isProcessingReturn || totalReturnAmount <= 0}
+                                                        className="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-blue-200/50 flex items-center gap-2"
+                                                    >
+                                                        {isProcessingReturn ? <RefreshCw size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+                                                        Process Return
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Empty State */}
+                                    {!returnSearch && !selectedReturnTx && (
+                                        <div className="text-center py-16">
+                                            <RotateCcw size={48} className="mx-auto text-gray-300 mb-4" />
+                                            <h3 className="text-lg font-bold text-gray-500 mb-2">Search for a Purchase</h3>
+                                            <p className="text-sm text-gray-400">Type a bill number or supplier name above to find purchases to return</p>
+                                        </div>
+                                    )}
+
+                                    {returnSearch && returnSearchResults.length === 0 && !selectedReturnTx && (
+                                        <div className="text-center py-16">
+                                            <Search size={48} className="mx-auto text-gray-300 mb-4" />
+                                            <h3 className="text-lg font-bold text-gray-500 mb-2">No Results Found</h3>
+                                            <p className="text-sm text-gray-400">No transactions match your search. Try a different bill number or supplier name.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                /* Return History Tab */
+                                <div>
+                                    {/* Date Range + Search + Load Button */}
+                                    <div className="flex flex-wrap gap-4 items-end mb-6">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-700 mb-1">Date Range</label>
+                                            <div className="flex items-center space-x-2">
+                                                <input
+                                                    type="date"
+                                                    className="border rounded-lg p-2 text-sm"
+                                                    value={returnDateRange.start}
+                                                    onChange={e => setReturnDateRange({ ...returnDateRange, start: e.target.value })}
+                                                />
+                                                <span className="text-gray-400">-</span>
+                                                <input
+                                                    type="date"
+                                                    className="border rounded-lg p-2 text-sm"
+                                                    value={returnDateRange.end}
+                                                    onChange={e => setReturnDateRange({ ...returnDateRange, end: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 min-w-[200px]">
+                                            <label className="block text-xs font-semibold text-gray-700 mb-1">Filter Returns</label>
+                                            <div className="relative">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                                                <input
+                                                    type="text"
+                                                    className="w-full border rounded-lg pl-9 pr-4 py-2 text-sm"
+                                                    placeholder="Filter by supplier or bill number..."
+                                                    value={returnHistorySearch}
+                                                    onChange={e => setReturnHistorySearch(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => refreshPurchaseReturns()}
+                                            className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition shadow-sm"
+                                        >
+                                            Load History
+                                        </button>
+                                    </div>
+
+                                    {/* Returns Table */}
+                                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left text-gray-500">
+                                                <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                                                    <tr>
+                                                        <th className="px-4 py-3">Date</th>
+                                                        <th className="px-4 py-3">Supplier</th>
+                                                        <th className="px-4 py-3">Bill No</th>
+                                                        <th className="px-4 py-3">Returned Products</th>
+                                                        <th className="px-4 py-3 text-right">Return Amount</th>
+                                                        <th className="px-4 py-3 text-right">New Bill Total</th>
+                                                        <th className="px-4 py-3 text-right">New Balance</th>
+                                                        <th className="px-4 py-3 text-center">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {purchaseReturns.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan={8} className="text-center py-10 text-gray-400">
+                                                                No purchase returns found for this period. Click "Load History" to fetch.
+                                                            </td>
+                                                        </tr>
+                                                    ) : (
+                                                        purchaseReturns
+                                                            .filter(pr => {
+                                                                if (!returnHistorySearch) return true;
+                                                                const q = returnHistorySearch.toLowerCase();
+                                                                return (pr.vendorName || '').toLowerCase().includes(q) || (pr.invoice || '').toLowerCase().includes(q);
+                                                            })
+                                                            .map((pr, idx) => (
+                                                                <tr key={idx} className="bg-white border-b hover:bg-slate-50/80 transition-colors duration-150">
+                                                                    <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
+                                                                        {pr.returnDate ? format(parseDateSafe(pr.returnDate) || new Date(), 'dd MMM yyyy') : '-'}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 font-medium text-blue-600">{pr.vendorName}</td>
+                                                                    <td className="px-4 py-3 font-mono text-gray-600">{pr.invoice || '-'}</td>
+                                                                    <td className="px-4 py-3">
+                                                                        <div className="flex flex-wrap gap-1">
+                                                                            {pr.returnedProducts?.map((p, i) => (
+                                                                                <span key={i} className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200">
+                                                                                    {p.name} x{p.returnedQty}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-right font-bold text-red-600 font-mono">
+                                                                        -₹{pr.totalReturnAmount.toLocaleString()}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-right font-semibold text-gray-800 font-mono">
+                                                                        ₹{pr.newAmount.toLocaleString()}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-right font-semibold text-gray-800 font-mono">
+                                                                        ₹{pr.newBalance.toLocaleString()}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        <span className="bg-green-50 text-green-700 text-[10px] px-2 py-0.5 rounded border border-green-200 font-black uppercase">
+                                                                            {pr.status}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            ))
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    {/* Summary Bar */}
+                                    {purchaseReturns.length > 0 && (
+                                        <div className="mt-4 bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between">
+                                            <span className="text-sm font-bold text-gray-600">
+                                                Total Returns: <span className="text-blue-600">{purchaseReturns.length}</span>
+                                            </span>
+                                            <span className="text-sm font-bold text-gray-600">
+                                                Total Return Amount: <span className="text-red-600 font-mono">₹{purchaseReturns.reduce((sum, pr) => sum + pr.totalReturnAmount, 0).toLocaleString()}</span>
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

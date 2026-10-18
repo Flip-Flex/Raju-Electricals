@@ -52,6 +52,10 @@ public class Bill {
     private BigDecimal amountPaid;
     private BigDecimal pendingAmount;
 
+    // --- SALES RETURN SUMMARY FIELDS ---
+    private double returnedAmount;   // Cumulative value returned against this bill
+    private boolean fullyReturned;   // True when every line item is fully returned
+
     private String paymentMethod;
     private BigDecimal cashAmount;
     private BigDecimal onlineAmount;

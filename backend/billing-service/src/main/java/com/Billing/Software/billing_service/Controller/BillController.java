@@ -1,6 +1,7 @@
 package com.Billing.Software.billing_service.Controller;
 
 import com.Billing.Software.billing_service.Entity.Bill;
+import com.Billing.Software.billing_service.Entity.SalesReturn;
 import com.Billing.Software.billing_service.dto.BillRequest;
 import com.Billing.Software.billing_service.Service.BillService;
 import lombok.RequiredArgsConstructor;
@@ -80,11 +81,51 @@ public class BillController {
         return ResponseEntity.ok(Map.of("message", "Bill deleted successfully"));
     }
 
+    /**
+     * Processes a Sales Return against a bill.
+     * Body: { "returnedProducts": [...], "remarks": "..." }
+     * Legacy callers may PUT { "status": "RETURNED" } to simply flag a bill as returned.
+     */
     @PutMapping("/{id}/return")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
     public ResponseEntity<?> returnBill(@RequestHeader(HttpHeaders.AUTHORIZATION) String auth, @PathVariable String id,
-            @RequestBody Bill returnRequest) throws Exception {
-        return ResponseEntity.ok(billService.processReturnOrExchange(auth, id, returnRequest));
+            @RequestBody Map<String, Object> returnRequest) throws Exception {
+        SalesReturn result = billService.processReturnOrExchange(auth, id, returnRequest, getAuthUid());
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Cancels a previously completed Sales Return, restoring stock and reverting the bill.
+     * Body: { "reason": "..." }
+     */
+    @PutMapping("/sales-returns/{id}/cancel")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public ResponseEntity<?> cancelSalesReturn(@RequestHeader(HttpHeaders.AUTHORIZATION) String auth,
+            @PathVariable String id, @RequestBody Map<String, String> body) throws Exception {
+        String reason = body.get("reason");
+        SalesReturn result = billService.cancelSalesReturn(auth, id, reason, getAuthUid());
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Fetches all Sales Returns within a date range.
+     * Usage: /api/billing/sales-returns/range?start=2025-01-01&end=2025-01-31
+     */
+    @GetMapping("/sales-returns/range")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public List<SalesReturn> getSalesReturnsByRange(
+            @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date start,
+            @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date end) throws Exception {
+        return billService.getSalesReturnsByDateRange(start, end);
+    }
+
+    /**
+     * Fetches every Sales Return recorded against a specific bill.
+     */
+    @GetMapping("/sales-returns/bill/{billId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public List<SalesReturn> getSalesReturnsByBillId(@PathVariable String billId) throws Exception {
+        return billService.getSalesReturnsByBillId(billId);
     }
 
     @GetMapping("/all")

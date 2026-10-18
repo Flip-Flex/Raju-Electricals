@@ -3,6 +3,8 @@ package com.Billing.Software.billing_service.Service;
 import com.Billing.Software.billing_service.Entity.Bill;
 import com.Billing.Software.billing_service.Entity.BillDetails;
 import com.Billing.Software.billing_service.Entity.Notification;
+import com.Billing.Software.billing_service.Entity.SalesReturn;
+import com.Billing.Software.billing_service.Entity.SalesReturnedProduct;
 import com.Billing.Software.billing_service.dto.BillRequest;
 import com.Billing.Software.billing_service.dto.BillTransactionDTO;
 import com.Billing.Software.billing_service.dto.CommissionDTO;
@@ -34,6 +36,7 @@ public class BillService {
     private final NotificationService notificationService; // Added
     private final Firestore firestore;
     private static final String COL = "bills";
+    private static final String COL_SALES_RETURNS = "sales_returns";
 
     // 0. Mapping Wrapper for BillRequest
     
@@ -481,7 +484,7 @@ public class BillService {
             long next = (snap.exists() && snap.getLong("current") != null) ? snap.getLong("current") : 0;
             next++;
             t.set(ref, Map.of("current", next));
-            return String.format("SKA 26-27-%03d", next);
+            return String.format("RE 26-27-%03d", next);
         }).get();
     }
 
@@ -616,6 +619,399 @@ public class BillService {
         return new ArrayList<>();
     }
 
+    // =========================================================================
+    // SALES RETURN LOGIC
+    // =========================================================================
+
+    /**
+     * Fetches a single bill from the primary "bills" collection.
+     * Raju stores every bill (PAID / PARTIAL / HOLD / CANCELLED) in one collection,
+     * unlike the reference project which splits them across several collections.
+     */
+    public Bill getBillById(String id) throws Exception {
+        DocumentSnapshot snap = firestore.collection(COL).document(id).get().get();
+        if (!snap.exists())
+            return null;
+        return snap.toObject(Bill.class);
+    }
+
+    /**
+     * NOTE ON GST MATH:
+     * Raju stores unitPrice as a GST-INCLUSIVE amount (see calculateBillTotals, where
+     * taxable = lineTotal / (1 + gstRate/100)). The reference project branches on a
+     * Retail/Wholesale systemType; Raju has no such concept, so we always use the
+     * inclusive ("retail") formula to stay consistent with how bills are created here.
+     */
+    private static final class ReturnLineTotals {
+        final double discountAmount, amountBeforeGst, gstAmount, amountAfterGst;
+        ReturnLineTotals(double discountAmount, double amountBeforeGst, double gstAmount, double amountAfterGst) {
+            this.discountAmount = discountAmount;
+            this.amountBeforeGst = amountBeforeGst;
+            this.gstAmount = gstAmount;
+            this.amountAfterGst = amountAfterGst;
+        }
+    }
+
+    private ReturnLineTotals computeReturnLineTotals(double unitPrice, int qty, double discountRate, double gstRate) {
+        double beforeDiscount = unitPrice * qty;
+        double discountAmount = beforeDiscount * (discountRate / 100);
+        double amountAfterDiscount = beforeDiscount - discountAmount;
+        double taxable = amountAfterDiscount / (1 + (gstRate / 100));
+        double gstAmount = amountAfterDiscount - taxable;
+        return new ReturnLineTotals(discountAmount, taxable, gstAmount, amountAfterDiscount);
+    }
+
+    public SalesReturn processReturnOrExchange(String auth, String billId, Map<String, Object> returnReq, String username)
+            throws Exception {
+        List<Map<String, Object>> productsList = (List<Map<String, Object>>) returnReq.get("returnedProducts");
+
+        // Backwards-compatibility: the existing "Save Return & Print" flow in Billing.tsx
+        // PUTs { status: 'RETURNED' } with no returnedProducts. Honour that as a plain
+        // status flip so the older exchange workflow keeps working unchanged.
+        if (productsList == null || productsList.isEmpty()) {
+            Bill legacy = getBillById(billId);
+            if (legacy == null)
+                throw new NoSuchElementException("Bill not found with ID: " + billId);
+            firestore.collection(COL).document(billId).update("status", "RETURNED").get();
+            return null;
+        }
+
+        String remarks = (String) returnReq.getOrDefault("remarks", "");
+
+        Bill bill = getBillById(billId);
+        if (bill == null) {
+            throw new NoSuchElementException("Bill not found with ID: " + billId);
+        }
+        if (!"PAID".equals(bill.getStatus()) && !"PARTIAL".equals(bill.getStatus())) {
+            throw new Exception("Only PAID or PARTIAL bills can be returned");
+        }
+
+        // Pre-validate: ensure return quantities are positive and products exist in the bill
+        for (Map<String, Object> p : productsList) {
+            String productId = (String) p.get("productId");
+            int returnQty = ((Number) p.get("returnQty")).intValue();
+            if (returnQty <= 0) {
+                throw new Exception("Return quantity must be positive for product: " + productId);
+            }
+            boolean found = false;
+            for (BillDetails item : bill.getItems()) {
+                if (productId.equals(item.getProductId())) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                throw new Exception("Product not found in bill: " + productId);
+            }
+        }
+
+        // Duplicate return prevention: reject if existing COMPLETED returns already
+        // consume the returnable quantities for this bill
+        List<SalesReturn> existingReturns = firestore.collection(COL_SALES_RETURNS)
+                .whereEqualTo("billId", billId)
+                .whereEqualTo("status", "COMPLETED")
+                .get().get().getDocuments().stream()
+                .map(d -> d.toObject(SalesReturn.class))
+                .collect(Collectors.toList());
+
+        if (!existingReturns.isEmpty()) {
+            Map<String, Integer> totalReturnedByProduct = new HashMap<>();
+            for (SalesReturn sr : existingReturns) {
+                if (sr.getReturnedProducts() != null) {
+                    for (SalesReturnedProduct srp : sr.getReturnedProducts()) {
+                        totalReturnedByProduct.merge(srp.getProductId(), srp.getReturnQty(), Integer::sum);
+                    }
+                }
+            }
+            for (Map<String, Object> p : productsList) {
+                String productId = (String) p.get("productId");
+                int returnQty = ((Number) p.get("returnQty")).intValue();
+                int alreadyReturned = totalReturnedByProduct.getOrDefault(productId, 0);
+                BillDetails matchingItem = bill.getItems().stream()
+                        .filter(item -> productId.equals(item.getProductId()))
+                        .findFirst().orElse(null);
+                if (matchingItem != null) {
+                    int remaining = (int) matchingItem.getQuantity() - alreadyReturned;
+                    if (returnQty > remaining) {
+                        throw new Exception("Cannot return " + returnQty + " of " + matchingItem.getProductName()
+                                + ". Only " + remaining + " remaining (already returned: " + alreadyReturned + ")");
+                    }
+                }
+            }
+        }
+
+        String srId = generateReturnSequenceId();
+
+        // Atomic transaction: validate against FRESH bill data, restore stock,
+        // reduce bill qty and save the return record
+        firestore.runTransaction(transaction -> {
+            DocumentReference billRef = firestore.collection(COL).document(billId);
+            DocumentSnapshot snap = transaction.get(billRef).get();
+            Bill currentBill = snap.toObject(Bill.class);
+            if (currentBill == null)
+                throw new NoSuchElementException("Bill not found: " + billId);
+
+            // Re-validate against FRESH bill data inside the transaction so concurrent
+            // requests cannot over-return
+            List<SalesReturnedProduct> returnProducts = new ArrayList<>();
+            double totalReturnAmount = 0;
+
+            for (Map<String, Object> p : productsList) {
+                String productId = (String) p.get("productId");
+                int returnQty = ((Number) p.get("returnQty")).intValue();
+
+                BillDetails matchingItem = null;
+                for (BillDetails item : currentBill.getItems()) {
+                    if (productId.equals(item.getProductId())) {
+                        matchingItem = item;
+                        break;
+                    }
+                }
+                if (matchingItem == null) {
+                    throw new NoSuchElementException("Product not found in bill: " + productId);
+                }
+
+                int remaining = (int) matchingItem.getQuantity() - matchingItem.getReturnedQty();
+                if (returnQty > remaining) {
+                    throw new Exception("Cannot return " + returnQty + " of " + matchingItem.getProductName()
+                            + ". Remaining: " + remaining + " (concurrent return may have been processed)");
+                }
+
+                double discountRate = matchingItem.getDiscountRate() != null ? matchingItem.getDiscountRate().doubleValue() : 0;
+                double gstRate = matchingItem.getGstRate() != null ? matchingItem.getGstRate().doubleValue() : 0;
+                double unitPrice = matchingItem.getUnitPrice() != null ? matchingItem.getUnitPrice().doubleValue() : 0;
+
+                ReturnLineTotals totals = computeReturnLineTotals(unitPrice, returnQty, discountRate, gstRate);
+
+                SalesReturnedProduct srp = SalesReturnedProduct.builder()
+                        .productId(productId)
+                        .productName(matchingItem.getProductName())
+                        .originalQty((int) matchingItem.getQuantity())
+                        .previouslyReturned(matchingItem.getReturnedQty())
+                        .returnQty(returnQty)
+                        .remainingReturnable(remaining - returnQty)
+                        .unitPrice(unitPrice)
+                        .gstRate(gstRate)
+                        .discountRate(discountRate)
+                        .discountAmount(totals.discountAmount)
+                        .amountBeforeGst(totals.amountBeforeGst)
+                        .gstAmount(totals.gstAmount)
+                        .amountAfterGst(totals.amountAfterGst)
+                        .build();
+                returnProducts.add(srp);
+                totalReturnAmount += totals.amountAfterGst;
+            }
+
+            // Restore stock for returned products
+            for (SalesReturnedProduct srp : returnProducts) {
+                productClient.updateProductStock(auth, srp.getProductId(), srp.getReturnQty());
+            }
+
+            // Update bill items - increment returnedQty, recompute the line for the
+            // remaining (non-returned) quantity
+            for (BillDetails item : currentBill.getItems()) {
+                for (SalesReturnedProduct srp : returnProducts) {
+                    if (srp.getProductId().equals(item.getProductId())) {
+                        item.setReturnedQty(item.getReturnedQty() + srp.getReturnQty());
+
+                        double remainingQty = item.getQuantity() - item.getReturnedQty();
+                        double unitPrice = item.getUnitPrice() != null ? item.getUnitPrice().doubleValue() : 0;
+                        double discountRate = item.getDiscountRate() != null ? item.getDiscountRate().doubleValue() : 0;
+                        double gstRate = item.getGstRate() != null ? item.getGstRate().doubleValue() : 0;
+
+                        ReturnLineTotals remaining = computeReturnLineTotals(unitPrice, (int) remainingQty, discountRate, gstRate);
+
+                        item.setSubtotal(BigDecimal.valueOf(remaining.amountBeforeGst));
+                        item.setDiscountAmount(BigDecimal.valueOf(remaining.discountAmount));
+                        item.setGstAmount(BigDecimal.valueOf(remaining.gstAmount));
+                        item.setNetAmount(BigDecimal.valueOf(remaining.amountAfterGst));
+                        break;
+                    }
+                }
+            }
+
+            // Recalculate bill totals from the (now reduced) line items
+            BigDecimal newFinalAmount = BigDecimal.ZERO;
+            BigDecimal newTotalGst = BigDecimal.ZERO;
+            BigDecimal newTotalDiscount = BigDecimal.ZERO;
+            boolean allFullyReturned = true;
+
+            for (BillDetails item : currentBill.getItems()) {
+                int remainingQty = (int) item.getQuantity() - item.getReturnedQty();
+                if (remainingQty > 0)
+                    allFullyReturned = false;
+                if (item.getNetAmount() != null)
+                    newFinalAmount = newFinalAmount.add(item.getNetAmount());
+                if (item.getGstAmount() != null)
+                    newTotalGst = newTotalGst.add(item.getGstAmount());
+                if (item.getDiscountAmount() != null)
+                    newTotalDiscount = newTotalDiscount.add(item.getDiscountAmount());
+            }
+
+            double previousBillAmount = currentBill.getFinalAmount() != null
+                    ? currentBill.getFinalAmount().doubleValue()
+                    : 0;
+
+            currentBill.setFinalAmount(newFinalAmount);
+            currentBill.setTotalGstAmount(newTotalGst);
+            currentBill.setTotalDiscountAmount(newTotalDiscount);
+            currentBill.setReturnedAmount(currentBill.getReturnedAmount() + totalReturnAmount);
+            currentBill.setFullyReturned(allFullyReturned);
+            currentBill.setUpdatedAt(new Date());
+
+            transaction.set(billRef, currentBill);
+
+            SalesReturn salesReturn = SalesReturn.builder()
+                    .id(srId)
+                    .billId(billId)
+                    .customerName(currentBill.getCustomerName())
+                    .customerPhone(String.valueOf(currentBill.getCustomerPhone()))
+                    .returnDate(new Date())
+                    .returnedProducts(returnProducts)
+                    .totalReturnAmount(totalReturnAmount)
+                    .previousBillAmount(previousBillAmount)
+                    .newBillAmount(newFinalAmount.doubleValue())
+                    .status("COMPLETED")
+                    .remarks(remarks)
+                    .processedBy(username)
+                    .build();
+
+            transaction.set(firestore.collection(COL_SALES_RETURNS).document(srId), salesReturn);
+            return null;
+        }).get();
+
+        return getSalesReturnById(srId);
+    }
+
+    public SalesReturn cancelSalesReturn(String auth, String returnId, String reason, String cancelledBy) throws Exception {
+        DocumentSnapshot srSnap = firestore.collection(COL_SALES_RETURNS).document(returnId).get().get();
+        if (!srSnap.exists())
+            throw new NoSuchElementException("Sales return not found: " + returnId);
+
+        SalesReturn sr = srSnap.toObject(SalesReturn.class);
+        if (!"COMPLETED".equals(sr.getStatus())) {
+            throw new Exception("Only COMPLETED returns can be cancelled");
+        }
+        if (sr.getCancelledAt() != null) {
+            throw new Exception("This return was already cancelled");
+        }
+
+        Bill bill = getBillById(sr.getBillId());
+
+        firestore.runTransaction(transaction -> {
+            // Re-deduct the stock that the return had restored
+            for (SalesReturnedProduct srp : sr.getReturnedProducts()) {
+                productClient.updateProductStock(auth, srp.getProductId(), -srp.getReturnQty());
+            }
+
+            // Revert bill items - decrement returnedQty and recompute the line totals
+            if (bill != null) {
+                for (BillDetails item : bill.getItems()) {
+                    for (SalesReturnedProduct srp : sr.getReturnedProducts()) {
+                        if (srp.getProductId().equals(item.getProductId())) {
+                            item.setReturnedQty(Math.max(0, item.getReturnedQty() - srp.getReturnQty()));
+
+                            double remainingQty = item.getQuantity() - item.getReturnedQty();
+                            double unitPrice = item.getUnitPrice() != null ? item.getUnitPrice().doubleValue() : 0;
+                            double discountRate = item.getDiscountRate() != null ? item.getDiscountRate().doubleValue() : 0;
+                            double gstRate = item.getGstRate() != null ? item.getGstRate().doubleValue() : 0;
+
+                            ReturnLineTotals remaining = computeReturnLineTotals(unitPrice, (int) remainingQty, discountRate, gstRate);
+
+                            item.setSubtotal(BigDecimal.valueOf(remaining.amountBeforeGst));
+                            item.setDiscountAmount(BigDecimal.valueOf(remaining.discountAmount));
+                            item.setGstAmount(BigDecimal.valueOf(remaining.gstAmount));
+                            item.setNetAmount(BigDecimal.valueOf(remaining.amountAfterGst));
+                            break;
+                        }
+                    }
+                }
+
+                BigDecimal newFinalAmount = BigDecimal.ZERO;
+                BigDecimal newTotalGst = BigDecimal.ZERO;
+                boolean allFullyReturned = true;
+
+                for (BillDetails item : bill.getItems()) {
+                    int remainingQty = (int) item.getQuantity() - item.getReturnedQty();
+                    if (remainingQty > 0)
+                        allFullyReturned = false;
+                    if (item.getNetAmount() != null)
+                        newFinalAmount = newFinalAmount.add(item.getNetAmount());
+                    if (item.getGstAmount() != null)
+                        newTotalGst = newTotalGst.add(item.getGstAmount());
+                }
+
+                bill.setFinalAmount(newFinalAmount);
+                bill.setTotalGstAmount(newTotalGst);
+                bill.setReturnedAmount(Math.max(0, bill.getReturnedAmount() - sr.getTotalReturnAmount()));
+                bill.setFullyReturned(allFullyReturned);
+                bill.setUpdatedAt(new Date());
+
+                transaction.set(firestore.collection(COL).document(sr.getBillId()), bill);
+            }
+
+            sr.setStatus("CANCELLED");
+            sr.setCancelledBy(cancelledBy);
+            sr.setCancelledAt(new Date());
+            sr.setCancellationReason(reason);
+            transaction.set(firestore.collection(COL_SALES_RETURNS).document(returnId), sr);
+            return null;
+        }).get();
+
+        return getSalesReturnById(returnId);
+    }
+
+    public List<SalesReturn> getSalesReturnsByDateRange(Date startDate, Date endDate) throws Exception {
+        Calendar c = Calendar.getInstance();
+        c.setTime(endDate);
+        c.add(Calendar.DATE, 1);
+        Date adjustedEndDate = c.getTime();
+
+        return firestore.collection(COL_SALES_RETURNS)
+                .whereGreaterThanOrEqualTo("returnDate", startDate)
+                .whereLessThan("returnDate", adjustedEndDate)
+                .orderBy("returnDate", Query.Direction.DESCENDING)
+                .get().get().getDocuments().stream()
+                .map(d -> d.toObject(SalesReturn.class))
+                .collect(Collectors.toList());
+    }
+
+    public List<SalesReturn> getSalesReturnsByBillId(String billId) throws Exception {
+        return firestore.collection(COL_SALES_RETURNS)
+                .whereEqualTo("billId", billId)
+                .get().get().getDocuments().stream()
+                .map(d -> d.toObject(SalesReturn.class))
+                .sorted((a, b) -> b.getReturnDate().compareTo(a.getReturnDate()))
+                .collect(Collectors.toList());
+    }
+
+    public SalesReturn getSalesReturnById(String id) throws Exception {
+        DocumentSnapshot snap = firestore.collection(COL_SALES_RETURNS).document(id).get().get();
+        if (!snap.exists())
+            return null;
+        return snap.toObject(SalesReturn.class);
+    }
+
+    /**
+     * Sequential Sales Return ID, e.g. SR-00001.
+     * Mirrors generateSequentialId() but uses its own counter so return IDs never
+     * collide with bill numbers.
+     */
+    private String generateReturnSequenceId() throws Exception {
+        DocumentReference ref = firestore.collection("_counters").document("sales_returns");
+        return firestore.runTransaction(t -> {
+            DocumentSnapshot snap = t.get(ref).get();
+            long next = (snap.exists() && snap.getLong("current") != null) ? snap.getLong("current") : 0;
+            next++;
+            t.set(ref, Map.of("current", next));
+            return String.format("SR-%05d", next);
+        }).get();
+    }
+
+    /**
+     * @deprecated Legacy entry point kept so any caller of the old 3-arg signature
+     *             still compiles. New code should use the 4-arg Map-based variant.
+     */
     public Bill processReturnOrExchange(String auth, String id, Bill returnReq) throws Exception {
         return returnReq;
     }

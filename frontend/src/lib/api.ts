@@ -387,6 +387,65 @@ export interface PaymentHistoryEntry {
   statusAfterPayment: string;
 }
 
+export interface ReturnedProduct {
+  productId: string;
+  name: string;
+  returnedQty: number;
+  purchaseRate: number;
+  amount: number;
+}
+
+export interface PurchaseReturn {
+  id?: string;
+  transactionId: string;
+  vendorId: string;
+  vendorName: string;
+  invoice: string;
+  returnDate: string;
+  returnedProducts: ReturnedProduct[];
+  totalReturnAmount: number;
+  previousAmount: number;
+  newAmount: number;
+  previousBalance: number;
+  newBalance: number;
+  status: string;
+  remarks?: string;
+}
+
+export interface SalesReturnedProduct {
+  productId: string;
+  productName: string;
+  originalQty: number;
+  previouslyReturned: number;
+  returnQty: number;
+  remainingReturnable: number;
+  unitPrice: number;
+  gstRate: number;
+  discountRate: number;
+  discountAmount: number;
+  amountBeforeGst: number;
+  gstAmount: number;
+  amountAfterGst: number;
+}
+
+export interface SalesReturn {
+  id?: string;
+  billId: string;
+  customerName: string;
+  customerPhone: string;
+  returnDate: string;
+  returnedProducts: SalesReturnedProduct[];
+  totalReturnAmount: number;
+  previousBillAmount: number;
+  newBillAmount: number;
+  status: string;
+  remarks?: string;
+  processedBy?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
+}
+
 export interface Vendor {
   id: string;
   name: string;
@@ -439,6 +498,11 @@ export const vendorApi = {
   deleteCredit: (id: string) => vendorService.delete(`/vendors/transactions/delete/${id}`),
   getCreditsRange: (start: string, end: string) => vendorService.get<CreditTransaction[]>(`/vendors/transactions/range?startDate=${start}&endDate=${end}`),
   syncProductDetails: (productId: string, rate: number, gst: number, stock: number) => vendorService.put(`/vendors/transactions/sync-details/${productId}?rate=${rate}&gst=${gst}&stock=${stock}`),
+
+  // Purchase Returns
+  addPurchaseReturn: (data: PurchaseReturn) => vendorService.post('/vendors/transactions/returns/add', data),
+  getPurchaseReturnsRange: (start: string, end: string) => vendorService.get<PurchaseReturn[]>(`/vendors/transactions/returns/range?startDate=${start}&endDate=${end}`),
+  getPurchaseReturnsByTransaction: (transactionId: string) => vendorService.get<PurchaseReturn[]>(`/vendors/transactions/returns/transaction/${transactionId}`),
 };
 
 export interface ChitScheme {
@@ -596,6 +660,8 @@ export interface BillDetails {
   discountRate: number;
   taxCode?: string;
   colourCode?: string;
+  // Sales Return tracking — quantity of this line already returned
+  returnedQty?: number;
   // Profit specific
   purchaseRate?: number;
   purchaseGstRate?: number;
@@ -652,6 +718,9 @@ export interface Bill {
   shipToAddress?: string;
   shipToGst?: string;
   isShipToDifferent?: boolean;
+  // Sales Return summary — cumulative value returned + fully-returned flag
+  returnedAmount?: number;
+  fullyReturned?: boolean;
 }
 
 export const billingApi = {
@@ -664,6 +733,15 @@ export const billingApi = {
   cancelPlaceholder: (id: string) => billingService.put(`/billing/${id}/cancel-placeholder`),
   uncancel: (id: string) => billingService.put(`/billing/${id}/uncancel`),
   returnBill: (id: string, data: Bill) => billingService.put(`/billing/${id}/return`, data),
+  // Sales Returns
+  processSalesReturn: (billId: string, data: { returnedProducts: any[]; remarks?: string }) =>
+    billingService.put<SalesReturn>(`/billing/${billId}/return`, data),
+  cancelSalesReturn: (returnId: string, data: { reason: string }) =>
+    billingService.put<SalesReturn>(`/billing/sales-returns/${returnId}/cancel`, data),
+  getSalesReturnsByRange: (start: string, end: string) =>
+    billingService.get<SalesReturn[]>(`/billing/sales-returns/range?start=${start}&end=${end}`),
+  getSalesReturnsByBillId: (billId: string) =>
+    billingService.get<SalesReturn[]>(`/billing/sales-returns/bill/${billId}`),
   pay: (id: string, data: any) => billingService.patch(`/billing/${id}/pay`, data),
   getAll: () => billingService.get<Bill[]>('/billing/all'),
   getByRange: (start: string, end: string) => billingService.get<Bill[]>(`/billing/range?start=${start}&end=${end}&startDate=${start}&endDate=${end}`),

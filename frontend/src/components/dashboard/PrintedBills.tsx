@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import toast from "react-hot-toast";
-import { billingService, billingApi, estimationApi, proformaApi } from "@/lib/api";
+import { billingService, billingApi, estimationApi, proformaApi, SalesReturn } from "@/lib/api";
 import { utils, writeFile } from "xlsx";
-import { Printer, FileText, Search, FileSpreadsheet, Calculator, RefreshCw, X, CreditCard, Trash2, Eye } from "lucide-react";
+import { Printer, FileText, Search, FileSpreadsheet, Calculator, RefreshCw, X, CreditCard, Trash2, Eye, RotateCcw } from "lucide-react";
 import { motion } from "framer-motion";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { APP_CONFIG } from '@/config';
@@ -23,6 +23,9 @@ interface BillItem {
   netAmount: number;
   gstRate: number;
   unit?: string;
+  productId?: string;
+  // Sales Return tracking — quantity of this line already returned
+  returnedQty?: number;
 }
 
 interface Bill {
@@ -56,6 +59,9 @@ interface Bill {
   shipToGst?: string;
   paidAmount?: number;
   paymentHistory?: any[];
+  // Sales Return summary
+  returnedAmount?: number;
+  fullyReturned?: boolean;
 }
 
 const PrintedBills: React.FC = () => {
@@ -70,7 +76,7 @@ const PrintedBills: React.FC = () => {
   const [shopName] = useLocalStorage("shopName_v3", APP_CONFIG.COMPANY_NAME);
   const [gstNumberRaw] = useLocalStorage("gstNumber_v4", "33BJLPN3590D1Z7");
   const gstNumber = !gstNumberRaw || gstNumberRaw === '33JPNPK3337F1ZR' ? '33BJLPN3590D1Z7' : gstNumberRaw;
-  const { mutateProducts } = useGlobalData();
+  const { mutateProducts, refreshSalesReturns } = useGlobalData();
 
   // Payment Tracking State
   const [payModal, setPayModal] = useState<{ open: boolean; bill: Bill | null }>({ open: false, bill: null });
@@ -82,6 +88,44 @@ const PrintedBills: React.FC = () => {
     remarks: ''
   });
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Sales Return Modal State
+  const [srModalOpen, setSrModalOpen] = useState(false);
+  const [srTab, setSrTab] = useState<'search' | 'history'>('search');
+  const [srSearch, setSrSearch] = useState('');
+  const [srStartDate, setSrStartDate] = useState('');
+  const [srEndDate, setSrEndDate] = useState('');
+  const [srSearchResults, setSrSearchResults] = useState<Bill[]>([]);
+  const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+  const [srReturnProducts, setSrReturnProducts] = useState<{
+    productId: string;
+    productName: string;
+    originalQty: number;
+    previouslyReturned: number;
+    returnQty: number;
+    remainingReturnable: number;
+    unitPrice: number;
+    gstRate: number;
+    discountRate: number;
+    discountAmount: number;
+    amountBeforeGst: number;
+    gstAmount: number;
+    amountAfterGst: number;
+  }[]>([]);
+  const [srRemarks, setSrRemarks] = useState('');
+  const [isProcessingSR, setIsProcessingSR] = useState(false);
+  // Sales Return history tab state
+  const [srHistoryResults, setSrHistoryResults] = useState<SalesReturn[]>([]);
+  const [srHistorySearch, setSrHistorySearch] = useState('');
+  const [srHistoryStartDate, setSrHistoryStartDate] = useState('');
+  const [srHistoryEndDate, setSrHistoryEndDate] = useState('');
+  // Cancel sales return modal
+  const [cancelSrModal, setCancelSrModal] = useState<{ open: boolean; sr: SalesReturn | null }>({ open: false, sr: null });
+  const [cancelReason, setCancelReason] = useState('');
+  const [isCancellingSr, setIsCancellingSr] = useState(false);
+  // Generic confirm dialog (mirrors reference project)
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; message: string; onConfirm: () => void }>({ open: false, message: '', onConfirm: () => { } });
+
   const fetchAllData = async () => {
     try {
       setLoading(true);
@@ -154,6 +198,209 @@ const PrintedBills: React.FC = () => {
     }
     const d = new Date(val);
     return isNaN(d.getTime()) ? null : d;
+  };
+
+  // ------------------------------------------------------------------
+  // Sales Return helpers
+  //
+  // NOTE ON GST MATH: Raju stores unitPrice as a GST-INCLUSIVE amount (see the
+  // backend calculateBillTotals). The reference project branches on a
+  // Retail/Wholesale systemType that Raju does not have, so we always use the
+  // inclusive ("retail") formula to stay consistent with how bills are created.
+  // ------------------------------------------------------------------
+  const computeSrLineTotals = (
+    unitPrice: number,
+    qty: number,
+    discountRate: number,
+    gstRate: number
+  ) => {
+    const beforeDiscount = unitPrice * qty;
+    const discountAmount = beforeDiscount * (discountRate / 100);
+    const amountAfterDiscount = beforeDiscount - discountAmount;
+    const taxable = amountAfterDiscount / (1 + gstRate / 100);
+    const gstAmount = amountAfterDiscount - taxable;
+    return { discountAmount, amountBeforeGst: taxable, gstAmount, amountAfterGst: amountAfterDiscount };
+  };
+
+  const openSrModal = () => {
+    setSrModalOpen(true);
+    setSrTab('search');
+    setSrSearch('');
+    setSrStartDate('');
+    setSrEndDate('');
+    setSrSearchResults([]);
+    setSelectedBill(null);
+    setSrReturnProducts([]);
+    setSrRemarks('');
+  };
+
+  const handleSrSearch = (query: string) => {
+    setSrSearch(query);
+    const q = query.toLowerCase().trim();
+    if (!q && !srStartDate && !srEndDate) {
+      setSrSearchResults([]);
+      return;
+    }
+    const results = filteredData.filter(item => {
+      if (q) {
+        const id = (item.invoiceId || item.invoiceNumber || item.id || "").toLowerCase();
+        const name = (item.customerName || "").toLowerCase();
+        const phone = (item.customerPhone || "").toString();
+        if (!id.includes(q) && !name.includes(q) && !phone.includes(q)) return false;
+      }
+      if (srStartDate) {
+        const billDate = new Date(item.createdAt || "");
+        const start = new Date(srStartDate);
+        start.setHours(0, 0, 0, 0);
+        if (billDate < start) return false;
+      }
+      if (srEndDate) {
+        const billDate = new Date(item.createdAt || "");
+        const end = new Date(srEndDate);
+        end.setHours(23, 59, 59, 999);
+        if (billDate > end) return false;
+      }
+      return true;
+    });
+    setSrSearchResults(results);
+  };
+
+  const handleSrSelectBill = (bill: Bill) => {
+    setSelectedBill(bill);
+    const products = (bill.items || []).map(item => {
+      const qty = Number(item.quantity) || 0;
+      const prevReturned = Number(item.returnedQty) || 0;
+      const price = Number(item.unitPrice) || 0;
+      const discountRate = Number(item.discountRate) || 0;
+      const gstRate = Number(item.gstRate) || 0;
+
+      return {
+        productId: item.productId || "",
+        productName: item.productName || "",
+        originalQty: qty,
+        previouslyReturned: prevReturned,
+        returnQty: 0,
+        remainingReturnable: qty - prevReturned,
+        unitPrice: price,
+        gstRate: gstRate,
+        discountRate: discountRate,
+        discountAmount: 0,
+        amountBeforeGst: 0,
+        gstAmount: 0,
+        amountAfterGst: 0
+      };
+    });
+    setSrReturnProducts(products);
+  };
+
+  const handleSrReturnQtyChange = (index: number, qty: number) => {
+    setSrReturnProducts(prev => prev.map((p, i) => {
+      if (i === index) {
+        const clamped = Math.max(0, Math.min(qty, p.remainingReturnable));
+        const totals = computeSrLineTotals(p.unitPrice, clamped, p.discountRate, p.gstRate);
+        return {
+          ...p,
+          returnQty: clamped,
+          discountAmount: totals.discountAmount,
+          amountBeforeGst: totals.amountBeforeGst,
+          gstAmount: totals.gstAmount,
+          amountAfterGst: totals.amountAfterGst
+        };
+      }
+      return p;
+    }));
+  };
+
+  const totalSrReturnAmount = srReturnProducts.reduce((sum, p) => sum + p.amountAfterGst, 0);
+
+  const handleProcessSalesReturn = async () => {
+    if (!selectedBill || !selectedBill.id) {
+      toast.error("No bill selected");
+      return;
+    }
+    const productsWithReturn = srReturnProducts.filter(p => p.returnQty > 0);
+    if (productsWithReturn.length === 0) {
+      toast.error("Please set at least one product return quantity");
+      return;
+    }
+    for (const p of productsWithReturn) {
+      if (p.returnQty > p.remainingReturnable) {
+        toast.error(`Cannot return ${p.returnQty} of ${p.productName}. Remaining: ${p.remainingReturnable}`);
+        return;
+      }
+    }
+    setConfirmDialog({
+      open: true,
+      message: `Process sales return of ₹${totalSrReturnAmount.toFixed(2)}? Stock will be restored and the bill will be updated.`,
+      onConfirm: async () => {
+        setIsProcessingSR(true);
+        try {
+          await billingApi.processSalesReturn(selectedBill.id!, {
+            returnedProducts: productsWithReturn.map(p => ({
+              productId: p.productId,
+              productName: p.productName,
+              originalQty: p.originalQty,
+              previouslyReturned: p.previouslyReturned,
+              returnQty: p.returnQty,
+              remainingReturnable: p.remainingReturnable,
+              unitPrice: p.unitPrice,
+              gstRate: p.gstRate,
+              discountRate: p.discountRate,
+              discountAmount: p.discountAmount,
+              amountBeforeGst: p.amountBeforeGst,
+              gstAmount: p.gstAmount,
+              amountAfterGst: p.amountAfterGst
+            })),
+            remarks: srRemarks
+          });
+          toast.success("Sales return processed successfully");
+          await fetchAllData();
+          await refreshSalesReturns();
+          setSrModalOpen(false);
+          setSelectedBill(null);
+          setSrReturnProducts([]);
+          setSrRemarks('');
+        } catch (error: any) {
+          toast.error(error.response?.data?.message || "Failed to process sales return");
+        } finally {
+          setIsProcessingSR(false);
+          setConfirmDialog({ open: false, message: '', onConfirm: () => { } });
+        }
+      }
+    });
+  };
+
+  const handleLoadSrHistory = async () => {
+    try {
+      const res = await billingApi.getSalesReturnsByRange(
+        srHistoryStartDate || '2024-01-01',
+        srHistoryEndDate || '2030-12-31'
+      );
+      setSrHistoryResults(res.data || []);
+    } catch (err) {
+      toast.error("Failed to load sales return history");
+    }
+  };
+
+  const handleCancelSalesReturn = (sr: SalesReturn) => {
+    setCancelSrModal({ open: true, sr });
+    setCancelReason('');
+  };
+
+  const handleConfirmCancelSr = async () => {
+    if (!cancelSrModal.sr) return;
+    setIsCancellingSr(true);
+    try {
+      await billingApi.cancelSalesReturn(cancelSrModal.sr.id!, { reason: cancelReason });
+      toast.success("Sales return cancelled, stock restored");
+      setCancelSrModal({ open: false, sr: null });
+      await fetchAllData();
+      await refreshSalesReturns();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to cancel sales return");
+    } finally {
+      setIsCancellingSr(false);
+    }
   };
 
   const handlePaymentSubmit = async () => {
@@ -557,6 +804,15 @@ const PrintedBills: React.FC = () => {
         >
           <FileSpreadsheet size={18} /> Export {viewMode === 'PRINTED' ? 'Bills' : viewMode === 'PROFORMA' ? 'Proformas' : 'Estimations'}
         </button>
+
+        {viewMode === 'PRINTED' && (
+          <button
+            onClick={openSrModal}
+            className="px-4 py-2 bg-orange-500 text-white font-semibold rounded-lg hover:bg-orange-600 flex items-center gap-2 transition-all shadow-sm"
+          >
+            <RotateCcw size={18} /> Sales Return
+          </button>
+        )}
 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-lg border border-blue-100">
@@ -1060,6 +1316,417 @@ const PrintedBills: React.FC = () => {
                 className="px-6 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl transition-all duration-200 shadow-lg flex items-center gap-2"
               >
                 <Printer size={16} /> Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Sales Return Modal */}
+      {srModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 transition-all duration-300">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[85vw] max-h-[92vh] overflow-hidden ring-1 ring-black/5 flex flex-col">
+
+            {/* Header */}
+            <div className="bg-gradient-to-r from-orange-500 via-orange-500 to-amber-500 px-6 py-5 text-white relative flex-shrink-0">
+              <div className="absolute top-0 right-0 p-4 opacity-10">
+                <RotateCcw size={80} />
+              </div>
+              <div className="flex justify-between items-start">
+                <div className="relative z-10">
+                  <h2 className="text-xl font-bold tracking-tight">Sales Return</h2>
+                  <p className="text-orange-100 text-sm mt-1 opacity-90">Search bills and process returns</p>
+                </div>
+                <button
+                  onClick={() => setSrModalOpen(false)}
+                  className="relative z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-all duration-200"
+                >
+                  <X size={18} strokeWidth={3} />
+                </button>
+              </div>
+              <div className="flex space-x-2 mt-4 relative z-10">
+                <button
+                  onClick={() => setSrTab('search')}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${srTab === 'search' ? 'bg-white text-orange-600 shadow-lg' : 'bg-white/20 text-white hover:bg-white/30'}`}
+                >
+                  Search & Return
+                </button>
+                <button
+                  onClick={() => { setSrTab('history'); handleLoadSrHistory(); }}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${srTab === 'history' ? 'bg-white text-orange-600 shadow-lg' : 'bg-white/20 text-white hover:bg-white/30'}`}
+                >
+                  Return History
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {srTab === 'search' ? (
+                <div>
+                  {!selectedBill && (
+                    <div className="mb-6 space-y-3">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                        <input
+                          type="text"
+                          className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-xl pl-10 pr-4 py-3 focus:bg-white focus:border-orange-500 focus:ring-0 outline-none transition-all text-sm"
+                          placeholder="Search by bill number, customer name, or mobile number..."
+                          autoFocus
+                          value={srSearch}
+                          onChange={e => handleSrSearch(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex gap-3 items-center">
+                        <input type="date" value={srStartDate} onChange={e => setSrStartDate(e.target.value)} className="border-2 border-slate-100 bg-slate-50/50 rounded-xl px-3 py-2 text-sm focus:bg-white focus:border-orange-500 focus:ring-0 outline-none" />
+                        <span className="text-gray-400 text-sm">to</span>
+                        <input type="date" value={srEndDate} onChange={e => setSrEndDate(e.target.value)} className="border-2 border-slate-100 bg-slate-50/50 rounded-xl px-3 py-2 text-sm focus:bg-white focus:border-orange-500 focus:ring-0 outline-none" />
+                        <button onClick={() => handleSrSearch(srSearch)} className="px-4 py-2 bg-orange-500 text-white text-sm font-bold rounded-xl hover:bg-orange-600 transition shadow-sm">Search</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {srSearchResults.length > 0 && !selectedBill && (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left text-gray-500">
+                          <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-4 py-3">Date</th>
+                              <th className="px-4 py-3">Bill No</th>
+                              <th className="px-4 py-3">Customer</th>
+                              <th className="px-4 py-3 text-center">Items</th>
+                              <th className="px-4 py-3 text-right">Amt Before GST</th>
+                              <th className="px-4 py-3 text-right">GST%</th>
+                              <th className="px-4 py-3 text-right">Amt After GST</th>
+                              <th className="px-4 py-3 text-center">Returned</th>
+                              <th className="px-4 py-3 text-center">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {srSearchResults.map((bill) => {
+                              const totalGst = (bill.items || []).reduce((sum, item) => {
+                                const qty = Number(item.quantity) || 0;
+                                const price = Number(item.unitPrice) || 0;
+                                const gstRate = Number(item.gstRate) || 0;
+                                const subtotal = price * qty;
+                                const discountAmt = subtotal * ((Number(item.discountRate) || 0) / 100);
+                                const taxable = subtotal - discountAmt;
+                                return sum + (taxable - taxable / (1 + gstRate / 100));
+                              }, 0);
+                              const amtAfterGst = Number(bill.finalAmount) || 0;
+                              const amtBeforeGst = amtAfterGst - totalGst;
+                              return (
+                                <tr key={bill.id} className="bg-white border-b hover:bg-slate-50/80 transition-colors">
+                                  <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">{bill.createdAt ? new Date(bill.createdAt).toLocaleDateString('en-GB') : '-'}</td>
+                                  <td className="px-4 py-3 font-mono text-gray-600">{bill.invoiceId || bill.invoiceNumber || bill.id}</td>
+                                  <td className="px-4 py-3 font-medium text-orange-600">{bill.customerName || 'Walk-in'}</td>
+                                  <td className="px-4 py-3 text-center"><span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-bold text-xs">{bill.items?.length || 0}</span></td>
+                                  <td className="px-4 py-3 text-right font-mono text-gray-600">₹{amtBeforeGst.toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-right font-mono text-gray-500">{totalGst > 0 && amtBeforeGst > 0 ? `${((totalGst / amtBeforeGst) * 100).toFixed(0)}%` : '-'}</td>
+                                  <td className="px-4 py-3 text-right font-mono text-gray-900 font-semibold">₹{amtAfterGst.toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    {bill.fullyReturned ? <span className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-600 font-bold border border-red-200">FULL</span> : bill.returnedAmount ? <span className="text-[10px] px-2 py-0.5 rounded bg-yellow-50 text-yellow-600 font-bold border border-yellow-200">PARTIAL</span> : <span className="text-[10px] px-2 py-0.5 rounded bg-green-50 text-green-600 font-bold border border-green-200">NONE</span>}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <button onClick={() => handleSrSelectBill(bill)} className="px-3 py-1 bg-orange-500 text-white text-xs font-bold rounded-lg hover:bg-orange-600 transition shadow-sm">Select</button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedBill && (
+                    <div>
+                      <div className="bg-orange-50 p-3 rounded-xl border border-orange-100 mb-6 flex items-center justify-between">
+                        <div>
+                          <span className="text-sm font-bold text-orange-800">{selectedBill.customerName || 'Walk-in'}</span>
+                          <span className="mx-2 text-orange-300">•</span>
+                          <span className="text-sm font-mono text-orange-600">Bill: {selectedBill.invoiceId || selectedBill.invoiceNumber || selectedBill.id}</span>
+                          <span className="mx-2 text-orange-300">•</span>
+                          <span className="text-sm text-orange-600">₹{(Number(selectedBill.finalAmount) || 0).toFixed(2)}</span>
+                        </div>
+                        <button onClick={() => { setSelectedBill(null); setSrReturnProducts([]); setSrRemarks(''); }} className="text-xs text-orange-600 font-bold hover:underline">Change Selection</button>
+                      </div>
+
+                      {srReturnProducts.length > 0 ? (
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left text-gray-500">
+                              <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                                <tr>
+                                  <th className="px-3 py-3">Product ID</th>
+                                  <th className="px-3 py-3">Product Name</th>
+                                  <th className="px-3 py-3 text-center">Stock</th>
+                                  <th className="px-3 py-3 text-center">Orig Qty</th>
+                                  <th className="px-3 py-3 text-center">Returned</th>
+                                  <th className="px-3 py-3 text-center">Remaining</th>
+                                  <th className="px-3 py-3 text-right">Taxable Amt</th>
+                                  <th className="px-3 py-3 text-right">Discount</th>
+                                  <th className="px-3 py-3 text-right">GST%</th>
+                                  <th className="px-3 py-3 text-right">GST Amt</th>
+                                  <th className="px-3 py-3 text-right">Net Amt</th>
+                                  <th className="px-3 py-3 text-center">Return Qty</th>
+                                  <th className="px-3 py-3 text-right">Return Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {srReturnProducts.map((p, idx) => (
+                                  <tr key={idx} className={`bg-white border-b transition-colors ${p.remainingReturnable <= 0 ? 'opacity-50' : 'hover:bg-slate-50/80'}`}>
+                                    <td className="px-3 py-3 font-mono text-gray-600 text-xs">{p.productId}</td>
+                                    <td className="px-3 py-3 font-medium text-gray-900">{p.productName}</td>
+                                    <td className="px-3 py-3 text-center"><span className="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-0.5 rounded">{p.originalQty - p.previouslyReturned}</span></td>
+                                    <td className="px-3 py-3 text-center text-gray-600">{p.originalQty}</td>
+                                    <td className="px-3 py-3 text-center text-gray-600">{p.previouslyReturned}</td>
+                                    <td className="px-3 py-3 text-center">
+                                      {p.remainingReturnable <= 0 ? <span className="text-red-600 text-xs font-bold">Fully Returned</span> : <span className="text-green-600 text-xs font-bold">{p.remainingReturnable}</span>}
+                                    </td>
+                                    <td className="px-3 py-3 text-right font-mono text-gray-600">{p.returnQty > 0 ? `₹${p.amountBeforeGst.toFixed(2)}` : '₹0.00'}</td>
+                                    <td className="px-3 py-3 text-right font-mono text-gray-600">{p.returnQty > 0 ? `₹${p.discountAmount.toFixed(2)}` : '₹0.00'}</td>
+                                    <td className="px-3 py-3 text-right font-mono text-gray-500">{p.gstRate}%</td>
+                                    <td className="px-3 py-3 text-right font-mono text-gray-600">{p.returnQty > 0 ? `₹${p.gstAmount.toFixed(2)}` : '₹0.00'}</td>
+                                    <td className="px-3 py-3 text-right font-mono text-gray-900 font-semibold">{p.returnQty > 0 ? `₹${p.amountAfterGst.toFixed(2)}` : '₹0.00'}</td>
+                                    <td className="px-3 py-3 text-center">
+                                      {p.remainingReturnable > 0 ? (
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          max={p.remainingReturnable}
+                                          value={p.returnQty || ''}
+                                          placeholder="0"
+                                          className="w-20 border-2 border-slate-100 bg-slate-50/50 rounded-lg px-2 py-1.5 text-center text-sm focus:bg-white focus:border-orange-500 focus:ring-0 outline-none transition-all font-bold"
+                                          onChange={e => handleSrReturnQtyChange(idx, parseInt(e.target.value) || 0)}
+                                        />
+                                      ) : <span className="text-gray-400 text-xs">-</span>}
+                                    </td>
+                                    <td className="px-3 py-3 text-right font-bold text-orange-600 font-mono">
+                                      {p.returnQty > 0 ? `₹${p.amountAfterGst.toFixed(2)}` : '₹0.00'}
+                                    </td>
+                                  </tr>
+                                ))}
+                                {srReturnProducts.some(p => p.returnQty > 0) && (
+                                  <tr className="bg-orange-50 border-t-2 border-orange-200 font-bold">
+                                    <td colSpan={6} className="px-3 py-3 text-right text-orange-800 text-xs uppercase">Totals</td>
+                                    <td className="px-3 py-3 text-right font-mono text-orange-800">₹{srReturnProducts.reduce((s, p) => s + (p.returnQty > 0 ? p.amountBeforeGst : 0), 0).toFixed(2)}</td>
+                                    <td className="px-3 py-3 text-right font-mono text-orange-800">₹{srReturnProducts.reduce((s, p) => s + (p.returnQty > 0 ? p.discountAmount : 0), 0).toFixed(2)}</td>
+                                    <td className="px-3 py-3 text-right font-mono text-orange-800"></td>
+                                    <td className="px-3 py-3 text-right font-mono text-orange-800">₹{srReturnProducts.reduce((s, p) => s + (p.returnQty > 0 ? p.gstAmount : 0), 0).toFixed(2)}</td>
+                                    <td className="px-3 py-3 text-right font-mono text-orange-800">₹{totalSrReturnAmount.toFixed(2)}</td>
+                                    <td className="px-3 py-3 text-center text-orange-800"></td>
+                                    <td className="px-3 py-3 text-right font-mono text-orange-800">₹{totalSrReturnAmount.toFixed(2)}</td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 text-center text-yellow-700 text-sm mb-6">
+                          No products found for this bill.
+                        </div>
+                      )}
+
+                      <div className="mb-6">
+                        <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Remarks / Reason for Return</label>
+                        <textarea
+                          className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-xl p-3 text-sm focus:bg-white focus:border-orange-500 focus:ring-0 outline-none transition-all min-h-[80px]"
+                          placeholder="Add notes about this return..."
+                          value={srRemarks}
+                          onChange={e => setSrRemarks(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-gray-600">Total Return:</span>
+                          <span className="text-xl font-black text-orange-600 font-mono">₹{totalSrReturnAmount.toFixed(2)}</span>
+                        </div>
+                        <div className="flex gap-3">
+                          <button onClick={() => { setSelectedBill(null); setSrReturnProducts([]); setSrRemarks(''); }} className="px-6 py-2.5 text-sm font-bold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
+                          <button
+                            onClick={handleProcessSalesReturn}
+                            disabled={isProcessingSR || totalSrReturnAmount <= 0}
+                            className="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-200/50 flex items-center gap-2"
+                          >
+                            {isProcessingSR ? <RotateCcw size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+                            Process Return
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!srSearch && !selectedBill && (
+                    <div className="text-center py-16">
+                      <RotateCcw size={48} className="mx-auto text-gray-300 mb-4" />
+                      <h3 className="text-lg font-bold text-gray-500 mb-2">Search for a Bill</h3>
+                      <p className="text-sm text-gray-400">Type a bill number, customer name, or mobile number above to find bills to return</p>
+                    </div>
+                  )}
+
+                  {srSearch && srSearchResults.length === 0 && !selectedBill && (
+                    <div className="text-center py-16">
+                      <Search size={48} className="mx-auto text-gray-300 mb-4" />
+                      <h3 className="text-lg font-bold text-gray-500 mb-2">No Results Found</h3>
+                      <p className="text-sm text-gray-400">No bills match your search. Try a different bill number or customer name.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Return History Tab */
+                <div>
+                  <div className="flex flex-wrap gap-4 items-end mb-6">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Date Range</label>
+                      <div className="flex items-center space-x-2">
+                        <input type="date" value={srHistoryStartDate} onChange={e => setSrHistoryStartDate(e.target.value)} className="border rounded-lg p-2 text-sm" />
+                        <span className="text-gray-400">-</span>
+                        <input type="date" value={srHistoryEndDate} onChange={e => setSrHistoryEndDate(e.target.value)} className="border rounded-lg p-2 text-sm" />
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Filter Returns</label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                        <input
+                          type="text"
+                          className="w-full border rounded-lg pl-9 pr-4 py-2 text-sm"
+                          placeholder="Filter by customer, bill number, or return ID..."
+                          value={srHistorySearch}
+                          onChange={e => setSrHistorySearch(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <button onClick={handleLoadSrHistory} className="px-4 py-2 bg-orange-500 text-white text-sm font-bold rounded-lg hover:bg-orange-600 transition shadow-sm">Load History</button>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left text-gray-500">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                          <tr>
+                            <th className="px-4 py-3">Date</th>
+                            <th className="px-4 py-3">Return ID</th>
+                            <th className="px-4 py-3">Bill No</th>
+                            <th className="px-4 py-3">Customer</th>
+                            <th className="px-4 py-3">Returned Products</th>
+                            <th className="px-4 py-3 text-right">Return Amount</th>
+                            <th className="px-4 py-3 text-right">New Bill Total</th>
+                            <th className="px-4 py-3 text-center">Status</th>
+                            <th className="px-4 py-3 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {srHistoryResults.length === 0 ? (
+                            <tr><td colSpan={9} className="text-center py-10 text-gray-400">No sales returns found. Click "Load History" to fetch.</td></tr>
+                          ) : (
+                            srHistoryResults
+                              .filter(sr => {
+                                if (!srHistorySearch) return true;
+                                const q = srHistorySearch.toLowerCase();
+                                return (sr.customerName || '').toLowerCase().includes(q) || (sr.billId || '').toLowerCase().includes(q) || (sr.id || '').toLowerCase().includes(q);
+                              })
+                              .map((sr) => (
+                                <tr key={sr.id} className="bg-white border-b hover:bg-slate-50/80 transition-colors">
+                                  <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">{sr.returnDate ? new Date(sr.returnDate).toLocaleDateString('en-GB') : '-'}</td>
+                                  <td className="px-4 py-3 font-mono text-orange-600 font-bold text-xs">{sr.id}</td>
+                                  <td className="px-4 py-3 font-mono text-gray-600">{sr.billId}</td>
+                                  <td className="px-4 py-3 font-medium text-gray-700">{sr.customerName || '-'}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-wrap gap-1">
+                                      {(sr.returnedProducts || []).map((p, i) => (
+                                        <span key={i} className="bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded border border-orange-200">
+                                          {p.productName} x{p.returnQty}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-bold text-red-600 font-mono">-₹{sr.totalReturnAmount.toLocaleString()}</td>
+                                  <td className="px-4 py-3 text-right font-semibold text-gray-800 font-mono">₹{sr.newBillAmount.toLocaleString()}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className={`text-[10px] px-2 py-0.5 rounded border font-black uppercase ${sr.status === 'COMPLETED' ? 'bg-green-50 text-green-700 border-green-200' : sr.status === 'CANCELLED' ? 'bg-red-50 text-red-700 border-red-200 line-through' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                                      {sr.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {sr.status === 'COMPLETED' && (
+                                      <button onClick={() => handleCancelSalesReturn(sr)} className="px-2 py-1 bg-red-50 text-red-600 text-[10px] font-bold rounded border border-red-200 hover:bg-red-100 transition">
+                                        Cancel
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {srHistoryResults.length > 0 && (
+                    <div className="mt-4 bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between">
+                      <span className="text-sm font-bold text-gray-600">Total Returns: <span className="text-orange-600">{srHistoryResults.length}</span></span>
+                      <span className="text-sm font-bold text-gray-600">Total Return Amount: <span className="text-red-600 font-mono">₹{srHistoryResults.reduce((sum, sr) => sum + sr.totalReturnAmount, 0).toLocaleString()}</span></span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Sales Return Modal */}
+      {cancelSrModal.open && cancelSrModal.sr && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-gradient-to-r from-red-600 to-red-500 p-6 text-white relative">
+              <div className="absolute top-0 right-0 p-4 opacity-10"><RotateCcw size={80} /></div>
+              <h2 className="text-xl font-bold relative z-10">Cancel Sales Return</h2>
+              <p className="text-red-100 text-sm mt-1 relative z-10">This will reverse stock and bill changes</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                <p className="text-sm font-bold text-red-800">Return ID: <span className="font-mono">{cancelSrModal.sr.id}</span></p>
+                <p className="text-sm text-red-700 mt-1">Amount: <span className="font-bold">₹{cancelSrModal.sr.totalReturnAmount.toLocaleString()}</span></p>
+                <p className="text-sm text-red-700">Customer: <span className="font-bold">{cancelSrModal.sr.customerName}</span></p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Reason for Cancellation</label>
+                <textarea
+                  className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-xl p-3 text-sm focus:bg-white focus:border-red-500 focus:ring-0 outline-none transition-all min-h-[80px]"
+                  placeholder="Why are you cancelling this return?"
+                  value={cancelReason}
+                  onChange={e => setCancelReason(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="p-6 bg-slate-50/80 border-t border-slate-100 flex gap-3">
+              <button onClick={() => setCancelSrModal({ open: false, sr: null })} className="flex-1 py-3 px-4 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-200/50 transition-all">Go Back</button>
+              <button onClick={handleConfirmCancelSr} disabled={isCancellingSr} className="flex-1 py-3 px-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-red-200/50 flex items-center justify-center gap-2">
+                {isCancellingSr ? <RotateCcw size={16} className="animate-spin" /> : 'Confirm Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      {confirmDialog.open && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-6 text-center">
+              <RotateCcw size={48} className="mx-auto text-orange-500 mb-4" />
+              <h2 className="text-lg font-bold text-gray-800 mb-2">Confirm Sales Return</h2>
+              <p className="text-sm text-gray-600">{confirmDialog.message}</p>
+            </div>
+            <div className="p-6 bg-slate-50/80 border-t border-slate-100 flex gap-3">
+              <button onClick={() => setConfirmDialog({ open: false, message: '', onConfirm: () => { } })} className="flex-1 py-3 px-4 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-200/50 transition-all">Cancel</button>
+              <button onClick={confirmDialog.onConfirm} className="flex-1 py-3 px-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all shadow-lg shadow-orange-200/50">
+                Confirm
               </button>
             </div>
           </div>

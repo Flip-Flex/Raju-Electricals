@@ -1,5 +1,6 @@
 package com.Billing.Software.vendor_service.Controller;
 
+import com.Billing.Software.vendor_service.Entity.PurchaseReturn;
 import com.Billing.Software.vendor_service.Entity.Vendor;
 import com.Billing.Software.vendor_service.Entity.VendorTransaction;
 import com.Billing.Software.vendor_service.Service.VendorService;
@@ -140,5 +141,31 @@ public class VendorController {
         // Call the new method name provided by your team
         vendorService.syncProductDetailsInTransactions(productId, rate, gst, stock);
         return ResponseEntity.ok(Map.of("message", "Product details synced across transactions"));
+    }
+
+    // =========================================================================
+    // PURCHASE RETURN ENDPOINTS
+    // =========================================================================
+
+    @PostMapping("/transactions/returns/add")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public ResponseEntity<?> addPurchaseReturn(@RequestBody PurchaseReturn purchaseReturn) throws Exception {
+        String id = vendorService.processPurchaseReturn(purchaseReturn);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(Map.of("message", "Purchase return processed successfully", "id", id));
+    }
+
+    @GetMapping("/transactions/returns/range")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public List<PurchaseReturn> getPurchaseReturnsByRange(
+            @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date startDate,
+            @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date endDate) throws Exception {
+        return vendorService.getPurchaseReturnsByDateRange(startDate, endDate);
+    }
+
+    @GetMapping("/transactions/returns/transaction/{transactionId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public List<PurchaseReturn> getPurchaseReturnsByTransaction(@PathVariable String transactionId) throws Exception {
+        return vendorService.getPurchaseReturnsByTransaction(transactionId);
     }
 }
