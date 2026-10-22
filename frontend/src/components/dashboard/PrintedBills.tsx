@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import toast from "react-hot-toast";
-import { billingService, billingApi, estimationApi, proformaApi, SalesReturn } from "@/lib/api";
+import { billingService, billingApi, estimationApi, SalesReturn } from "@/lib/api";
 import { utils, writeFile } from "xlsx";
 import { Printer, FileText, Search, FileSpreadsheet, Calculator, RefreshCw, X, CreditCard, Trash2, Eye, RotateCcw } from "lucide-react";
 import { motion } from "framer-motion";
@@ -11,7 +11,6 @@ import { useGlobalData } from '@/context/GlobalDataContext';
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import ProfessionalTaxInvoice from '../print/ProfessionalTaxInvoice';
-import ProformaInvoice from '../print/ProformaInvoice';
 import { numberToWords } from '@/utils/numberToWords';
 import { EstimationPrint } from './Estimation';
 
@@ -70,7 +69,7 @@ const PrintedBills: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [viewMode, setViewMode] = useState<'PRINTED' | 'ESTIMATION' | 'PROFORMA'>('PRINTED');
+  const [viewMode, setViewMode] = useState<'PRINTED' | 'ESTIMATION'>('PRINTED');
   const { user, loading: authLoading } = useAuth();
 
   const [shopName] = useLocalStorage("shopName_v3", APP_CONFIG.COMPANY_NAME);
@@ -155,20 +154,7 @@ const PrintedBills: React.FC = () => {
         console.warn("Estimations fetch failed (continuing with bills only):", estErr);
       }
 
-      // Dedicated Proformas (non-blocking on failure)
-      try {
-        const proformaRes = await proformaApi.getAll();
-        const dedicatedProformas = Array.isArray(proformaRes.data) ? proformaRes.data : [];
-        const mappedProformas = dedicatedProformas.map((p: any) => ({
-          ...p,
-          invoiceId: p.proformaId || p.id,
-          billType: 'PROFORMA',
-          paymentMethod: 'PROFORMA'
-        }));
-        allBills = [...allBills, ...mappedProformas];
-      } catch (proErr) {
-        console.warn("Proformas fetch failed (continuing with other data):", proErr);
-      }
+
 
       const sorted = allBills.sort(
         (a: Bill, b: Bill) =>
@@ -466,9 +452,6 @@ const PrintedBills: React.FC = () => {
     if (viewMode === 'PRINTED') {
       // Show only real bills that are NOT estimates, NOT proformas, and NOT held
       if (bill.billType === 'ESTIMATE' || bill.paymentMethod === 'HOLD' || bill.billType === 'PROFORMA') return false;
-    } else if (viewMode === 'PROFORMA') {
-      // Show only PROFORMA bills
-      if (bill.billType !== 'PROFORMA') return false;
     } else {
       // Show only ESTIMATES or HELD bills
       if (bill.billType !== 'ESTIMATE' && bill.paymentMethod !== 'HOLD') return false;
@@ -540,7 +523,7 @@ const PrintedBills: React.FC = () => {
 
     const ws = utils.json_to_sheet(data);
     const wb = utils.book_new();
-    const sheetName = viewMode === 'PRINTED' ? 'Bills' : viewMode === 'PROFORMA' ? 'Proformas' : 'Estimations';
+    const sheetName = viewMode === 'PRINTED' ? 'Bills' : 'Estimations';
     utils.book_append_sheet(wb, ws, sheetName);
     writeFile(wb, `${sheetName}_History.xlsx`);
   };
@@ -572,55 +555,6 @@ const PrintedBills: React.FC = () => {
         <ProfessionalTaxInvoice
           bill={bill as any}
           items={bill.items as any || []}
-          company={companyData}
-          numberToWords={numberToWords}
-        />
-      );
-    } else if (viewMode === 'PROFORMA') {
-      const proformaBillData = {
-        ...bill,
-        proformaId: bill.invoiceId || bill.id,
-        totalTaxable: (bill as any).totalTaxable ?? (bill.items || []).reduce((sum, item) => sum + (item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100)), 0),
-        totalCGST: (bill as any).totalCGST ?? (bill.items || []).reduce((sum, item) => {
-          const taxable = item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100);
-          return sum + (taxable * ((item as any).gstRate || 0) / 2 / 100);
-        }, 0),
-        totalSGST: (bill as any).totalSGST ?? (bill.items || []).reduce((sum, item) => {
-          const taxable = item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100);
-          return sum + (taxable * ((item as any).gstRate || 0) / 2 / 100);
-        }, 0),
-        totalGstAmount: (bill as any).totalGstAmount ?? (bill.items || []).reduce((sum, item) => {
-          const taxable = item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100);
-          return sum + (taxable * ((item as any).gstRate || 0) / 100);
-        }, 0),
-        roundOffAmount: (bill as any).roundOffAmount ?? 0,
-        items: (bill.items || []).map(item => {
-          const gstRate = (item as any).gstRate || 0;
-          const storedTaxable = (item as any).taxableValue;
-          const storedCgst = (item as any).cgstAmount;
-          const storedSgst = (item as any).sgstAmount;
-          const taxable = storedTaxable ?? (item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100));
-          return {
-            productName: item.productName,
-            colourCode: (item as any).colourCode,
-            quantity: item.quantity,
-            unit: item.unit || 'Nos',
-            unitPrice: item.unitPrice,
-            discountRate: item.discountRate,
-            hsnsac: (item as any).hsnsac || (item as any).taxCode || '',
-            taxableValue: taxable,
-            cgstPercent: storedCgst != null ? ((item as any).cgstPercent || gstRate / 2) : gstRate / 2,
-            sgstPercent: storedSgst != null ? ((item as any).sgstPercent || gstRate / 2) : gstRate / 2,
-            cgstAmount: storedCgst ?? taxable * gstRate / 2 / 100,
-            sgstAmount: storedSgst ?? taxable * gstRate / 2 / 100,
-            netAmount: item.netAmount
-          };
-        })
-      };
-      html = renderToStaticMarkup(
-        <ProformaInvoice
-          bill={proformaBillData as any}
-          items={proformaBillData.items as any}
           company={companyData}
           numberToWords={numberToWords}
         />
@@ -658,8 +592,8 @@ const PrintedBills: React.FC = () => {
     printWindow.document.write(`
       <html>
         <head>
-          <title>${viewMode === 'PRINTED' ? 'Invoice' : viewMode === 'PROFORMA' ? 'Proforma' : 'Estimation'} - ${bill.invoiceId || bill.id}</title>
-          ${viewMode === 'PRINTED' || viewMode === 'PROFORMA' ? `
+          <title>${viewMode === 'PRINTED' ? 'Invoice' : 'Estimation'} - ${bill.invoiceId || bill.id}</title>
+          ${viewMode === 'PRINTED' ? `
           <style>
             @page { size: A4 portrait; margin: 0; }
             body { margin: 0; padding: 0; }
@@ -673,9 +607,8 @@ const PrintedBills: React.FC = () => {
 
   const handleDeleteBill = async (bill: Bill) => {
     const billId = bill.id || bill.invoiceId || bill.invoiceNumber || "";
-    const isProforma = bill.billType === 'PROFORMA';
     const isEstimation = bill.billType === 'ESTIMATE';
-    const deleteType = isProforma ? 'proforma' : isEstimation ? 'estimation' : 'bill';
+    const deleteType = isEstimation ? 'estimation' : 'bill';
     
     if (!window.confirm(`Are you sure you want to delete this ${deleteType} ${billId}? This will revert products and remove related reports.`)) return;
 
@@ -705,9 +638,7 @@ const PrintedBills: React.FC = () => {
     const toastId = toast.loading(`Deleting ${deleteType} ${billId}...`);
     
     try {
-      if (isProforma) {
-        await proformaApi.delete(bill.invoiceId || bill.id);
-      } else if (isEstimation) {
+      if (isEstimation) {
         await billingService.delete(`/estimations/${encodeURIComponent(bill.invoiceId || bill.id)}`);
       } else {
         await billingService.delete(`/billing/delete/${billId}`);
@@ -751,14 +682,6 @@ const PrintedBills: React.FC = () => {
           >
             ESTIMATIONS
           </button>
-          <button
-            onClick={() => setViewMode('PROFORMA')}
-            className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${viewMode === 'PROFORMA'
-              ? 'bg-purple-600 text-white shadow-md'
-              : 'text-gray-500 hover:bg-gray-300'}`}
-          >
-            PROFORMAS
-          </button>
         </div>
       </div>
 
@@ -767,7 +690,7 @@ const PrintedBills: React.FC = () => {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
           <input
             type="text"
-            placeholder={`Search ${viewMode === 'PRINTED' ? 'Invoice' : viewMode === 'PROFORMA' ? 'Proforma' : 'Estimation'}, Name...`}
+            placeholder={`Search ${viewMode === 'PRINTED' ? 'Invoice' : 'Estimation'}, Name...`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="form-input w-full pl-12"
@@ -802,7 +725,7 @@ const PrintedBills: React.FC = () => {
           onClick={handleExportExcel}
           className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 flex items-center gap-2"
         >
-          <FileSpreadsheet size={18} /> Export {viewMode === 'PRINTED' ? 'Bills' : viewMode === 'PROFORMA' ? 'Proformas' : 'Estimations'}
+          <FileSpreadsheet size={18} /> Export {viewMode === 'PRINTED' ? 'Bills' : 'Estimations'}
         </button>
 
         {viewMode === 'PRINTED' && (
@@ -841,7 +764,7 @@ const PrintedBills: React.FC = () => {
             <table className="w-full text-left">
               <thead className="bg-gray-100 border-b border-gray-200">
                 <tr>
-                  <th className="p-4 font-semibold text-gray-700">{viewMode === 'PRINTED' ? 'Invoice ID' : viewMode === 'PROFORMA' ? 'Proforma ID' : 'Estimation ID'}</th>
+                  <th className="p-4 font-semibold text-gray-700">{viewMode === 'PRINTED' ? 'Invoice ID' : 'Estimation ID'}</th>
                   <th className="p-4 font-semibold text-gray-700">Customer Name</th>
                   <th className="p-4 font-semibold text-gray-700">Contact</th>
                   <th className="p-4 font-semibold text-gray-700">Date & Time</th>
@@ -939,7 +862,7 @@ const PrintedBills: React.FC = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={viewMode === 'ESTIMATION' ? 11 : viewMode === 'PROFORMA' ? 8 : 7} className="text-center p-20 text-gray-400 italic">
+                    <td colSpan={viewMode === 'ESTIMATION' ? 11 : 7} className="text-center p-20 text-gray-400 italic">
                       No records found for the selected criteria.
                     </td>
                   </tr>
@@ -1166,7 +1089,7 @@ const PrintedBills: React.FC = () => {
             <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-600 px-6 py-4 flex justify-between items-center text-white">
               <div>
                 <h2 className="text-lg font-bold tracking-tight">
-                  {viewMode === 'PRINTED' ? 'Tax Invoice Preview' : viewMode === 'PROFORMA' ? 'Proforma Invoice Preview' : 'Estimation Preview'}
+                  {viewMode === 'PRINTED' ? 'Tax Invoice Preview' : 'Estimation Preview'}
                 </h2>
                 <p className="text-white/80 text-sm mt-0.5">
                   {previewModal.bill.customerName || 'Walk-in'} - {previewModal.bill.invoiceId || previewModal.bill.id}
@@ -1201,69 +1124,7 @@ const PrintedBills: React.FC = () => {
                     }}
                     numberToWords={numberToWords}
                   />
-                ) : viewMode === 'PROFORMA' ? (() => {
-                  const bill = previewModal.bill;
-                  const proformaBillData = {
-                    ...bill,
-                    proformaId: bill.invoiceId || bill.id,
-                    totalTaxable: (bill as any).totalTaxable ?? (bill.items || []).reduce((sum, item) => sum + (item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100)), 0),
-                    totalCGST: (bill as any).totalCGST ?? (bill.items || []).reduce((sum, item) => {
-                      const taxable = item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100);
-                      return sum + (taxable * ((item as any).gstRate || 0) / 2 / 100);
-                    }, 0),
-                    totalSGST: (bill as any).totalSGST ?? (bill.items || []).reduce((sum, item) => {
-                      const taxable = item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100);
-                      return sum + (taxable * ((item as any).gstRate || 0) / 2 / 100);
-                    }, 0),
-                    totalGstAmount: (bill as any).totalGstAmount ?? (bill.items || []).reduce((sum, item) => {
-                      const taxable = item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100);
-                      return sum + (taxable * ((item as any).gstRate || 0) / 100);
-                    }, 0),
-                    roundOffAmount: (bill as any).roundOffAmount ?? 0,
-                    items: (bill.items || []).map(item => {
-                      const gstRate = (item as any).gstRate || 0;
-                      const storedTaxable = (item as any).taxableValue;
-                      const storedCgst = (item as any).cgstAmount;
-                      const storedSgst = (item as any).sgstAmount;
-                      const taxable = storedTaxable ?? (item.unitPrice * item.quantity - (item.unitPrice * item.quantity * (item.discountRate || 0) / 100));
-                      return {
-                        productName: item.productName,
-                        colourCode: (item as any).colourCode,
-                        quantity: item.quantity,
-                        unit: item.unit || 'Nos',
-                        unitPrice: item.unitPrice,
-                        discountRate: item.discountRate,
-                        hsnsac: (item as any).hsnsac || (item as any).taxCode || '',
-                        taxableValue: taxable,
-                        cgstPercent: storedCgst != null ? ((item as any).cgstPercent || gstRate / 2) : gstRate / 2,
-                        sgstPercent: storedSgst != null ? ((item as any).sgstPercent || gstRate / 2) : gstRate / 2,
-                        cgstAmount: storedCgst ?? taxable * gstRate / 2 / 100,
-                        sgstAmount: storedSgst ?? taxable * gstRate / 2 / 100,
-                        netAmount: item.netAmount
-                      };
-                    })
-                  };
-                  return (
-                    <ProformaInvoice
-                      bill={proformaBillData as any}
-                      items={proformaBillData.items as any}
-                      company={{
-                        name: "Raju Electricals",
-                        address: "No:32,Ground Floor , pattala street, kanchipuram - 631501",
-                        phone: "9626956999",
-                        email: "rajuelectricals@gmail.com",
-                        gstin: gstNumber || "33BJLPN3590D1Z7",
-                        pan: "FFFPS9148J",
-                        state: "Tamil Nadu",
-                        bankName: "",
-                        accountNo: "",
-                        ifsc: "",
-                        branch: ""
-                      }}
-                      numberToWords={numberToWords}
-                    />
-                  );
-                })() : (() => {
+                ) : (() => {
                   const bill = previewModal.bill;
                   const totalQty = bill.items.filter((item: any) => item.productId !== 'TRANSPORT_CHARGE').reduce((sum, item) => sum + Number(item.quantity), 0);
                   const grandTotal = bill.finalAmount;

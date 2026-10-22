@@ -3,7 +3,8 @@ import { motion } from 'framer-motion';
 import {
   TrendingUp, TrendingDown, DollarSign, ShoppingCart,
   Package, AlertTriangle, Download, Users, Check, X, Pencil,
-  UserCheck, Award, Briefcase, Phone, FileText, Search, Filter, Sparkles, ChevronRight, Eye, User, Trophy, Percent, Wallet
+  UserCheck, Award, Briefcase, Phone, FileText, Search, Filter, Sparkles, ChevronRight, Eye, User, Trophy, Percent, Wallet,
+  ChevronLeft, Calendar, RotateCcw
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -12,7 +13,14 @@ import {
 } from 'recharts';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, startOfYear, endOfMonth, endOfYear, addDays } from 'date-fns';
+import {
+  format, subDays, addDays, startOfDay, endOfDay,
+  startOfWeek, endOfWeek, startOfMonth, endOfMonth,
+  startOfYear, endOfYear, addMonths, subMonths,
+  addYears, subYears, addWeeks, subWeeks,
+  getDaysInMonth, getYear, getMonth, isSameMonth,
+  isSameYear, isSameDay
+} from 'date-fns';
 import { billingApi, productApi, daybookApi, Bill, Product, Vendor, DayBookEntry, Staff } from '@/lib/api';
 import { useGlobalData } from '@/context/GlobalDataContext';
 import LowStockProductsModal from './LowStockProductsModal';
@@ -31,28 +39,171 @@ const DashboardOverview = () => {
   // Raw data
   const [expenses, setExpenses] = useState<DayBookEntry[]>([]);
   const [totalExpenseAmount, setTotalExpenseAmount] = useState<number>(0);
-    const [chartDataFetched, setChartDataFetched] = useState<any[]>([]);
-  
+  const [chartDataFetched, setChartDataFetched] = useState<any[]>([]);
+
+  // Period Navigation State & Constants
+  const [chartReferenceDate, setChartReferenceDate] = useState<Date>(new Date());
+
+  const MONTHS_LIST = [
+    { label: 'January', value: 0 },
+    { label: 'February', value: 1 },
+    { label: 'March', value: 2 },
+    { label: 'April', value: 3 },
+    { label: 'May', value: 4 },
+    { label: 'June', value: 5 },
+    { label: 'July', value: 6 },
+    { label: 'August', value: 7 },
+    { label: 'September', value: 8 },
+    { label: 'October', value: 9 },
+    { label: 'November', value: 10 },
+    { label: 'December', value: 11 },
+  ];
+
+  // Dynamic business running years derived from bills and expenses
+  const businessYears = useMemo(() => {
+    const yearsSet = new Set<number>();
+    const currentYear = new Date().getFullYear();
+    // Default fallback window around current year
+    yearsSet.add(currentYear - 2);
+    yearsSet.add(currentYear - 1);
+    yearsSet.add(currentYear);
+    yearsSet.add(currentYear + 1);
+
+    bills.forEach((b: any) => {
+      if (b.status === 'CANCELLED' || b.status === 'HOLD') return;
+      const d = new Date(b.createdAt || new Date());
+      if (!isNaN(d.getTime())) {
+        yearsSet.add(d.getFullYear());
+      }
+    });
+
+    expenses.forEach((e: any) => {
+      const dStr = e.date || e.createdAt;
+      if (dStr) {
+        const d = new Date(dStr);
+        if (!isNaN(d.getTime())) {
+          yearsSet.add(d.getFullYear());
+        }
+      }
+    });
+
+    const sorted = Array.from(yearsSet).sort((a, b) => a - b);
+    const minYear = sorted[0];
+    const maxYear = sorted[sorted.length - 1];
+    const consecutive: number[] = [];
+    for (let y = minYear; y <= maxYear; y++) {
+      consecutive.push(y);
+    }
+    return consecutive;
+  }, [bills, expenses]);
+
+  const handlePrevPeriod = () => {
+    if (dashboardView === 'year') {
+      setChartReferenceDate(prev => subYears(prev, 1));
+    } else if (dashboardView === 'month') {
+      setChartReferenceDate(prev => subYears(prev, 1));
+    } else { // 'day' or 'week'
+      setChartReferenceDate(prev => subMonths(prev, 1));
+    }
+  };
+
+  const handleNextPeriod = () => {
+    if (dashboardView === 'year') {
+      setChartReferenceDate(prev => addYears(prev, 1));
+    } else if (dashboardView === 'month') {
+      setChartReferenceDate(prev => addYears(prev, 1));
+    } else { // 'day' or 'week'
+      setChartReferenceDate(prev => addMonths(prev, 1));
+    }
+  };
+
+  const handleTodayPeriod = () => {
+    setChartReferenceDate(new Date());
+  };
+
+  const handleMonthSelect = (monthIndex: number) => {
+    const updated = new Date(chartReferenceDate);
+    updated.setMonth(monthIndex);
+    setChartReferenceDate(updated);
+  };
+
+  const handleYearSelect = (yearVal: number) => {
+    const updated = new Date(chartReferenceDate);
+    updated.setFullYear(yearVal);
+    setChartReferenceDate(updated);
+  };
+
+  const isCurrentPeriod = useMemo(() => {
+    const now = new Date();
+    if (dashboardView === 'year') return true;
+    if (dashboardView === 'month') return isSameYear(chartReferenceDate, now);
+    return isSameMonth(chartReferenceDate, now) && isSameYear(chartReferenceDate, now);
+  }, [chartReferenceDate, dashboardView]);
+
+  const chartActiveRange = useMemo(() => {
+    if (dashboardView === 'year') {
+      const minYear = businessYears[0];
+      const maxYear = businessYears[businessYears.length - 1];
+      return {
+        start: startOfYear(new Date(minYear, 0, 1)),
+        end: endOfYear(new Date(maxYear, 11, 31))
+      };
+    } else if (dashboardView === 'month') {
+      return {
+        start: startOfYear(chartReferenceDate),
+        end: endOfYear(chartReferenceDate)
+      };
+    } else { // 'day' or 'week'
+      return {
+        start: startOfMonth(chartReferenceDate),
+        end: endOfMonth(chartReferenceDate)
+      };
+    }
+  }, [dashboardView, chartReferenceDate, businessYears]);
+
+  const { periodTitle, periodBadge, periodSubtitle } = useMemo(() => {
+    const yearStr = format(chartReferenceDate, 'yyyy');
+    const monthStr = format(chartReferenceDate, 'MMMM');
+    const daysCount = getDaysInMonth(chartReferenceDate);
+
+    if (dashboardView === 'year') {
+      const minYear = businessYears[0];
+      const maxYear = businessYears[businessYears.length - 1];
+      return {
+        periodTitle: `${minYear} – ${maxYear}`,
+        periodBadge: `${businessYears.length} Years`,
+        periodSubtitle: `Multi-year business running performance (${businessYears.join(', ')})`
+      };
+    }
+    if (dashboardView === 'month') {
+      return {
+        periodTitle: `Year ${yearStr}`,
+        periodBadge: '12 Months',
+        periodSubtitle: `Monthly breakdown of ${yearStr} (Jan – Dec)`
+      };
+    }
+    if (dashboardView === 'week') {
+      const weeksCount = daysCount > 28 ? 5 : 4;
+      return {
+        periodTitle: `${monthStr} ${yearStr}`,
+        periodBadge: `${weeksCount} Weeks`,
+        periodSubtitle: `Weekly breakdown of ${monthStr} ${yearStr} (W1 – W${weeksCount})`
+      };
+    }
+    // 'day'
+    return {
+      periodTitle: `${monthStr} ${yearStr}`,
+      periodBadge: `${daysCount} Days`,
+      periodSubtitle: `Daily breakdown of ${monthStr} ${yearStr} (Day 1 – ${daysCount})`
+    };
+  }, [chartReferenceDate, dashboardView, businessYears]);
+
   // Staff Performance UI state
   const [selectedStaffDetails, setSelectedStaffDetails] = useState<any | null>(null);
-  const [staffSearch, setStaffSearch] = useState("");
-  const [selectedStaffRole, setSelectedStaffRole] = useState("ALL");
 
-  const getDateRange = (view: DashboardPeriod) => {
-    const now = new Date();
-    if (view === 'day') {
-      // Day view implies current week days (Mon-Sat)
-      return { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) };
-    }
-    if (view === 'week') {
-      // Week view implies weeks of current month (1st Week to 5th Week)
-      return { start: startOfMonth(now), end: endOfMonth(now) };
-    }
-    if (view === 'month') {
-      return { start: startOfMonth(now), end: endOfMonth(now) };
-    }
-    return { start: startOfYear(now), end: endOfYear(now) };
-  };
+  // Products UI state
+  const [productSearch, setProductSearch] = useState("");
+  const [selectedProductCategory, setSelectedProductCategory] = useState("ALL");
 
 
 
@@ -90,67 +241,132 @@ const filteredBills = dateFilteredBills;
 
 const filteredProducts = products;
 
-  // Helper to aggregate chart data
-  const aggregateChartData = (view: DashboardPeriod, rawData: any[], start: Date) => {
+  // Helper to aggregate chart data with dynamic calendar days & accurate date ranges
+  const aggregateChartData = (view: DashboardPeriod, rawData: any[], refDate: Date = chartReferenceDate) => {
+    const targetYear = getYear(refDate);
+    const targetMonth = getMonth(refDate);
+    const monthAbbr = format(refDate, 'MMM');
+    const daysInMonth = getDaysInMonth(refDate);
+
     if (view === 'year') {
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const monthlyAgg: Record<string, { income: number; expense: number }> = {};
-      months.forEach(m => monthlyAgg[m] = { income: 0, expense: 0 });
+      // Show all business running years (e.g. 2024, 2025, 2026, 2027)
+      const yearlyAgg: Record<number, { income: number; expense: number }> = {};
+      businessYears.forEach(y => {
+        yearlyAgg[y] = { income: 0, expense: 0 };
+      });
 
       rawData.forEach((d: any) => {
         const dDate = new Date(d.date);
         if (!isNaN(dDate.getTime())) {
-          const mName = months[dDate.getMonth()];
-          if (monthlyAgg[mName]) {
-            monthlyAgg[mName].income += (d.income || 0);
-            monthlyAgg[mName].expense += (d.expense || 0);
+          const y = getYear(dDate);
+          if (yearlyAgg[y]) {
+            yearlyAgg[y].income += (d.income || 0);
+            yearlyAgg[y].expense += (d.expense || 0);
           }
         }
       });
-      return months.map(m => ({ date: m, income: monthlyAgg[m].income, expense: monthlyAgg[m].expense }));
+
+      return businessYears.map(y => ({
+        date: y.toString(),
+        fullDate: `Year ${y}`,
+        income: yearlyAgg[y].income,
+        expense: yearlyAgg[y].expense
+      }));
     } else if (view === 'month') {
-      const fullMonthData = [];
-      const dataMap = new Map();
+      // Show monthly details (Jan, Feb, Mar, ..., Dec) for the selected year
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const fullMonthNames = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+      ];
+      const monthlyAgg: Record<number, { income: number; expense: number }> = {};
+      for (let m = 0; m < 12; m++) {
+        monthlyAgg[m] = { income: 0, expense: 0 };
+      }
+
       rawData.forEach((d: any) => {
-        const dayNum = new Date(d.date).getDate();
-        dataMap.set(dayNum, d);
+        const dDate = new Date(d.date);
+        if (!isNaN(dDate.getTime()) && getYear(dDate) === targetYear) {
+          const mIdx = dDate.getMonth();
+          if (monthlyAgg[mIdx]) {
+            monthlyAgg[mIdx].income += (d.income || 0);
+            monthlyAgg[mIdx].expense += (d.expense || 0);
+          }
+        }
       });
-      for (let i = 1; i <= 31; i++) {
+
+      return months.map((m, idx) => ({
+        date: m,
+        fullDate: `${fullMonthNames[idx]} ${targetYear}`,
+        income: monthlyAgg[idx].income,
+        expense: monthlyAgg[idx].expense
+      }));
+    } else if (view === 'week') {
+      // Show weekly details for the selected month (W1, W2, W3, W4, W5)
+      const weeksConfig = [
+        { label: `W1 (1-7 ${monthAbbr})`, fullLabel: `Week 1: 1 - 7 ${monthAbbr} ${targetYear}`, startDay: 1, endDay: 7, income: 0, expense: 0 },
+        { label: `W2 (8-14 ${monthAbbr})`, fullLabel: `Week 2: 8 - 14 ${monthAbbr} ${targetYear}`, startDay: 8, endDay: 14, income: 0, expense: 0 },
+        { label: `W3 (15-21 ${monthAbbr})`, fullLabel: `Week 3: 15 - 21 ${monthAbbr} ${targetYear}`, startDay: 15, endDay: 21, income: 0, expense: 0 },
+        { label: `W4 (22-28 ${monthAbbr})`, fullLabel: `Week 4: 22 - 28 ${monthAbbr} ${targetYear}`, startDay: 22, endDay: 28, income: 0, expense: 0 },
+      ];
+
+      if (daysInMonth > 28) {
+        weeksConfig.push({
+          label: `W5 (29-${daysInMonth} ${monthAbbr})`,
+          fullLabel: `Week 5: 29 - ${daysInMonth} ${monthAbbr} ${targetYear}`,
+          startDay: 29,
+          endDay: daysInMonth,
+          income: 0,
+          expense: 0
+        });
+      }
+
+      rawData.forEach((d: any) => {
+        const dDate = new Date(d.date);
+        if (!isNaN(dDate.getTime()) && getYear(dDate) === targetYear && getMonth(dDate) === targetMonth) {
+          const dayNum = dDate.getDate();
+          const targetWk = weeksConfig.find(w => dayNum >= w.startDay && dayNum <= w.endDay);
+          if (targetWk) {
+            targetWk.income += (d.income || 0);
+            targetWk.expense += (d.expense || 0);
+          }
+        }
+      });
+
+      return weeksConfig.map(w => ({
+        date: w.label,
+        fullDate: w.fullLabel,
+        income: w.income,
+        expense: w.expense
+      }));
+    } else { // 'day'
+      // Show daily details (Day 1 to daysInMonth) for the selected month
+      const dataMap = new Map<number, { income: number; expense: number }>();
+
+      rawData.forEach((d: any) => {
+        const dDate = new Date(d.date);
+        if (!isNaN(dDate.getTime()) && getYear(dDate) === targetYear && getMonth(dDate) === targetMonth) {
+          const dayNum = dDate.getDate();
+          const curr = dataMap.get(dayNum) || { income: 0, expense: 0 };
+          curr.income += (d.income || 0);
+          curr.expense += (d.expense || 0);
+          dataMap.set(dayNum, curr);
+        }
+      });
+
+      const fullMonthData = [];
+      for (let i = 1; i <= daysInMonth; i++) {
         const dayData = dataMap.get(i);
-        fullMonthData.push({ date: i.toString(), income: dayData?.income || 0, expense: dayData?.expense || 0 });
+        const dayDate = new Date(targetYear, targetMonth, i);
+        fullMonthData.push({
+          date: i.toString(),
+          fullDate: format(dayDate, 'dd MMMM yyyy (EEEE)'),
+          displayLabel: `${i} ${monthAbbr}`,
+          income: dayData?.income || 0,
+          expense: dayData?.expense || 0
+        });
       }
       return fullMonthData;
-    } else if (view === 'week') {
-      const weeksData = [
-        { date: '1st Week', income: 0, expense: 0 },
-        { date: '2nd Week', income: 0, expense: 0 },
-        { date: '3rd Week', income: 0, expense: 0 },
-        { date: '4th Week', income: 0, expense: 0 },
-        { date: '5th Week', income: 0, expense: 0 }
-      ];
-      rawData.forEach((d: any) => {
-        const dayNum = new Date(d.date).getDate();
-        let weekIdx = Math.floor((dayNum - 1) / 7);
-        if (weekIdx > 4) weekIdx = 4;
-        weeksData[weekIdx].income += (d.income || 0);
-        weeksData[weekIdx].expense += (d.expense || 0);
-      });
-      return weeksData;
-    } else { // day
-      const fullWeekData = [];
-      const dataMap = new Map();
-      rawData.forEach((d: any) => {
-        const dayStr = format(new Date(d.date), 'EEE');
-        dataMap.set(dayStr, d);
-      });
-      for (let i = 0; i < 6; i++) {
-        const currentDay = addDays(start, i);
-        const dayStr = format(currentDay, 'EEE');
-        const fullDayName = format(currentDay, 'EEEE');
-        const dayData = dataMap.get(dayStr);
-        fullWeekData.push({ date: fullDayName, income: dayData?.income || 0, expense: dayData?.expense || 0 });
-      }
-      return fullWeekData;
     }
   };
 
@@ -163,40 +379,57 @@ const filteredProducts = products;
       let rawData: any[] = [];
       let totalExp = 0;
 
+      const rangeStartStr = format(chartActiveRange.start, 'yyyy-MM-dd');
+      const rangeEndStr = format(chartActiveRange.end, 'yyyy-MM-dd');
+
       try {
-        const res = await daybookApi.getRange(startDate, endDate);
+        const res = await daybookApi.getRange(rangeStartStr, rangeEndStr);
         rawData = res.data?.chartData || res.data?.dailyBreakdown || [];
         totalExp = res.data?.totalExpense !== undefined 
           ? res.data.totalExpense 
           : rawData.reduce((sum: number, d: any) => sum + (d.expense || 0), 0);
       } catch (err) {
-        // Fallback: Compute chart data directly from filteredBills and loaded expenses
+        // Fallback: Compute chart data directly from bills and expenses
+        const rangeStart = startOfDay(chartActiveRange.start);
+        const rangeEnd = endOfDay(chartActiveRange.end);
+
         const dailyMap = new Map<string, { date: string; income: number; expense: number }>();
-        filteredBills.forEach(b => {
-          const d = format(new Date(b.createdAt || new Date()), 'yyyy-MM-dd');
-          const amt = Number(b.finalAmount || b.amountPaid || 0);
-          const curr = dailyMap.get(d) || { date: d, income: 0, expense: 0 };
-          curr.income += amt;
-          dailyMap.set(d, curr);
+
+        bills.forEach((b: any) => {
+          if (b.status === 'CANCELLED' || b.status === 'HOLD') return;
+          const bDate = new Date(b.createdAt || new Date());
+          if (bDate >= rangeStart && bDate <= rangeEnd) {
+            const d = format(bDate, 'yyyy-MM-dd');
+            const amt = Number(b.finalAmount || b.amountPaid || 0);
+            const curr = dailyMap.get(d) || { date: d, income: 0, expense: 0 };
+            curr.income += amt;
+            dailyMap.set(d, curr);
+          }
         });
-        expenses.forEach(e => {
-          const d = e.date ? format(new Date(e.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
-          const amt = Number(e.amount || 0);
-          totalExp += amt;
-          const curr = dailyMap.get(d) || { date: d, income: 0, expense: 0 };
-          curr.expense += amt;
-          dailyMap.set(d, curr);
+
+        expenses.forEach((e: any) => {
+          const dateStr = e.date || e.createdAt;
+          if (!dateStr) return;
+          const eDate = new Date(dateStr);
+          if (!isNaN(eDate.getTime()) && eDate >= rangeStart && eDate <= rangeEnd) {
+            const d = format(eDate, 'yyyy-MM-dd');
+            const amt = Number(e.amount || 0);
+            totalExp += amt;
+            const curr = dailyMap.get(d) || { date: d, income: 0, expense: 0 };
+            curr.expense += amt;
+            dailyMap.set(d, curr);
+          }
         });
+
         rawData = Array.from(dailyMap.values());
       }
 
       setTotalExpenseAmount(totalExp);
-      const start = startOfDay(new Date(startDate));
 
-      const dayData = aggregateChartData('day', rawData, start);
-      const weekData = aggregateChartData('week', rawData, start);
-      const monthData = aggregateChartData('month', rawData, start);
-      const yearData = aggregateChartData('year', rawData, start);
+      const dayData = aggregateChartData('day', rawData, chartReferenceDate);
+      const weekData = aggregateChartData('week', rawData, chartReferenceDate);
+      const monthData = aggregateChartData('month', rawData, chartReferenceDate);
+      const yearData = aggregateChartData('year', rawData, chartReferenceDate);
 
       setAllPeriodsData({ day: dayData, week: weekData, month: monthData, year: yearData });
 
@@ -206,8 +439,9 @@ const filteredProducts = products;
       else if (dashboardView === 'month') setChartDataFetched(monthData);
       else if (dashboardView === 'year') setChartDataFetched(yearData);
     };
+
     fetchChartData();
-  }, [dashboardView, startDate, endDate, filteredBills, expenses]);
+  }, [dashboardView, chartReferenceDate, chartActiveRange, bills, expenses, businessYears]);
 
 
 
@@ -338,53 +572,133 @@ const filteredProducts = products;
       .slice(0, 5);
   }, [staffPerformance]);
 
-  const staffChartData = useMemo(() => {
-    return staffPerformance
-      .filter(s => s.invoicesCount > 0 || s.totalRevenue > 0)
-      .slice(0, 8)
-      .map(s => ({
-        name: s.name,
-        revenue: Math.round(s.totalRevenue),
-        invoices: s.invoicesCount,
-        commission: Math.round(s.totalCommission),
-        itemsSold: s.itemsSold,
-        role: s.role,
-        id: s.id
-      }));
-  }, [staffPerformance]);
-
-  const availableStaffRoles = useMemo(() => {
-    const roles = new Set<string>();
-    staffPerformance.forEach(s => {
-      if (s.role) roles.add(s.role);
-    });
-    return Array.from(roles);
-  }, [staffPerformance]);
-
-  const filteredStaffList = useMemo(() => {
-    return staffPerformance.filter(s => {
-      const q = staffSearch.toLowerCase();
-      const matchesSearch =
-        s.name.toLowerCase().includes(q) ||
-        s.id.toLowerCase().includes(q) ||
-        s.phone.toLowerCase().includes(q) ||
-        s.role.toLowerCase().includes(q);
-      const matchesRole = selectedStaffRole === 'ALL' || s.role === selectedStaffRole;
-      return matchesSearch && matchesRole;
-    });
-  }, [staffPerformance, staffSearch, selectedStaffRole]);
-
   const totalStaffRevenue = useMemo(() => {
     return staffPerformance.reduce((acc, s) => acc + s.totalRevenue, 0);
   }, [staffPerformance]);
 
-  const totalStaffCommissions = useMemo(() => {
-    return staffPerformance.reduce((acc, s) => acc + s.totalCommission, 0);
-  }, [staffPerformance]);
+  // Product Performance Analytics
+  const productPerformance = useMemo(() => {
+    const prodMap = new Map<string, any>();
 
-  const activeStaffCount = useMemo(() => {
-    return staffPerformance.filter(s => s.invoicesCount > 0).length;
-  }, [staffPerformance]);
+    // Pre-populate with catalog products
+    (products || []).forEach((p: any) => {
+      const key = p.id || p.name;
+      if (!key) return;
+      prodMap.set(key, {
+        id: p.id || '',
+        name: p.name || 'Unnamed Product',
+        category: p.category || 'General',
+        sellingPrice: Number(p.sellingPrice || p.price || 0),
+        purchaseRate: Number(p.purchaseRate || 0),
+        stock: Number(p.stockQuantity ?? p.stock ?? 0),
+        vendorName: p.vendorName || p.weaverName || 'N/A',
+        barcode: p.barcode || '',
+        unitsSold: 0,
+        invoicesCount: 0,
+        totalRevenue: 0,
+        totalCost: 0,
+        totalProfit: 0,
+        profitMargin: 0
+      });
+    });
+
+    // Attribute sales from filtered bills
+    filteredBills.forEach((bill: any) => {
+      if (bill.status === 'CANCELLED' || bill.status === 'HOLD') return;
+
+      const seenProductsInBill = new Set<string>();
+
+      (bill.items || []).forEach((item: any) => {
+        const key = item.productId || item.productName;
+        if (!key) return;
+
+        let entry = prodMap.get(key);
+        if (!entry) {
+          for (const val of prodMap.values()) {
+            if (val.name.toLowerCase() === (item.productName || '').toLowerCase()) {
+              entry = val;
+              break;
+            }
+          }
+        }
+
+        const qty = Number(item.quantity || 0);
+        const unitPrice = Number(item.unitPrice || 0);
+        const itemTotal = Number(item.netAmount || (qty * unitPrice) || 0);
+        const itemCost = entry ? (entry.purchaseRate * qty) : (Number(item.purchaseRate || 0) * qty || (itemTotal * 0.7));
+
+        if (!entry) {
+          entry = {
+            id: item.productId || 'N/A',
+            name: item.productName || 'Unknown Product',
+            category: 'General',
+            sellingPrice: unitPrice,
+            purchaseRate: Number(item.purchaseRate || 0),
+            stock: 0,
+            vendorName: 'N/A',
+            barcode: '',
+            unitsSold: 0,
+            invoicesCount: 0,
+            totalRevenue: 0,
+            totalCost: 0,
+            totalProfit: 0,
+            profitMargin: 0
+          };
+          prodMap.set(key, entry);
+        }
+
+        entry.unitsSold += qty;
+        entry.totalRevenue += itemTotal;
+        entry.totalCost += itemCost;
+
+        if (!seenProductsInBill.has(entry.name || key)) {
+          entry.invoicesCount += 1;
+          seenProductsInBill.add(entry.name || key);
+        }
+      });
+    });
+
+    const list = Array.from(prodMap.values()).map(p => {
+      const profit = p.totalRevenue - p.totalCost;
+      const margin = p.totalRevenue > 0 ? (profit / p.totalRevenue) * 100 : 0;
+      return {
+        ...p,
+        totalProfit: Math.max(0, profit),
+        profitMargin: Math.max(0, margin)
+      };
+    });
+
+    return list.sort((a, b) => b.totalRevenue - a.totalRevenue || b.unitsSold - a.unitsSold);
+  }, [products, filteredBills]);
+
+  const availableProductCategories = useMemo(() => {
+    const cats = new Set<string>();
+    productPerformance.forEach(p => {
+      if (p.category && p.category !== 'General') cats.add(p.category);
+    });
+    return Array.from(cats);
+  }, [productPerformance]);
+
+  const filteredProductsList = useMemo(() => {
+    return productPerformance
+      .filter(p => p.unitsSold > 0 || p.totalRevenue > 0)
+      .filter(p => {
+        const q = productSearch.toLowerCase();
+        const matchesQuery = p.name.toLowerCase().includes(q) ||
+          p.id.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q);
+        const matchesCat = selectedProductCategory === 'ALL' || p.category === selectedProductCategory;
+        return matchesQuery && matchesCat;
+      });
+  }, [productPerformance, productSearch, selectedProductCategory]);
+
+  const totalProductSales = useMemo(() => {
+    return productPerformance.reduce((acc, p) => acc + p.totalRevenue, 0);
+  }, [productPerformance]);
+
+  const totalProductsSold = useMemo(() => {
+    return productPerformance.reduce((acc, p) => acc + p.unitsSold, 0);
+  }, [productPerformance]);
 
   // Keep lowStockProducts independent of productPerformance
   const lowStockProducts = useMemo(() => {
@@ -449,8 +763,8 @@ const filteredProducts = products;
   };
 
   const pieData = useMemo(() => {
-    return getPieDataForRange(startOfDay(new Date(startDate)), endOfDay(new Date(endDate)), totalExpenseAmount);
-  }, [bills, expenses, products, startDate, endDate, totalExpenseAmount]);
+    return getPieDataForRange(startOfDay(chartActiveRange.start), endOfDay(chartActiveRange.end));
+  }, [bills, expenses, products, chartActiveRange]);
 
   const allPieData = useMemo(() => {
     const now = new Date();
@@ -536,10 +850,26 @@ const filteredProducts = products;
       avgBill: `₹${s.avgBillValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
     }));
 
-    return { reportKpis, topStaffReport };
+    // Top 5 Products for report
+    const topProductsReport = productPerformance
+      .filter(p => p.unitsSold > 0 || p.totalRevenue > 0)
+      .slice(0, 5)
+      .map((p, i) => ({
+        rank: i + 1,
+        productId: p.id,
+        name: p.name,
+        category: p.category,
+        unitsSold: p.unitsSold,
+        sellingPrice: `₹${p.sellingPrice.toLocaleString()}`,
+        revenue: `₹${p.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+        profit: `₹${p.totalProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+        stock: p.stock
+      }));
+
+    return { reportKpis, topStaffReport, topProductsReport };
   };
 
-  const { reportKpis, topStaffReport } = getReportData();
+  const { reportKpis, topStaffReport, topProductsReport } = getReportData();
 
   if (loading && totalRevenue === 0) {
     return (
@@ -663,67 +993,212 @@ const filteredProducts = products;
         lowStockProducts={lowStockProducts}
       />
 
-      {/* Time Range Toggle Row */}
-      <div className="flex justify-end mb-4">
-        <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm gap-1">
-          {(['day', 'week', 'month', 'year'] as const).map(view => (
-            <button
-              key={view}
-              onClick={() => setDashboardView(view)}
-              className={`px-4 py-1.5 text-[10px] font-black rounded-lg transition-all ${dashboardView === view ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-              {view.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm lg:col-span-2">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-slate-800 text-lg">Income vs Expenses</h3>
-          </div>
-          <div className="h-[300px]">
-            {chartDataFetched.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400 font-medium">
-                No transactions for selected period
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartDataFetched} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} dy={10} angle={-45} textAnchor="end" height={60} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={(v) => `₹${v / 1000}k`} dx={-10} />
-                  <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                  <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} verticalAlign="top" />
-                  <Bar dataKey="income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                  <Bar dataKey="expense" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                </BarChart>
-              </ResponsiveContainer>
+      {/* Unified Financial Analytics Container */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden mb-6">
+        {/* Header: Period Navigator & View Toggles */}
+        <div className="px-5 py-3.5 border-b border-slate-100 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3 bg-slate-50/60">
+          {/* Left: Interactive Period Navigator */}
+          <div className="flex items-center flex-wrap gap-2">
+            {/* Prev Button */}
+            {dashboardView !== 'year' && (
+              <button
+                onClick={handlePrevPeriod}
+                className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-all hover:scale-105 active:scale-95 shadow-2xs cursor-pointer"
+                title={`Previous ${dashboardView}`}
+                aria-label={`Previous ${dashboardView}`}
+              >
+                <ChevronLeft size={16} />
+              </button>
             )}
-          </div>
-        </div>
 
-        <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-800 text-lg">Revenue Distribution</h3>
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
-              <span className="text-[10px] font-black text-blue-600 px-2 py-1 bg-white rounded shadow-sm">SYNCED VIEW</span>
+            {/* Period Title & Badge */}
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+              <Calendar size={15} className="text-blue-600" />
+              <span className="font-bold text-slate-800 text-sm tracking-tight">{periodTitle}</span>
+              <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200">
+                {periodBadge}
+              </span>
+            </div>
+
+            {/* Next Button */}
+            {dashboardView !== 'year' && (
+              <button
+                onClick={handleNextPeriod}
+                className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-all hover:scale-105 active:scale-95 shadow-2xs cursor-pointer"
+                title={`Next ${dashboardView}`}
+                aria-label={`Next ${dashboardView}`}
+              >
+                <ChevronRight size={16} />
+              </button>
+            )}
+
+            {/* "Today" Jump Button (shown if not currently on current period) */}
+            {!isCurrentPeriod && (
+              <button
+                onClick={handleTodayPeriod}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer"
+                title="Jump to current date"
+              >
+                <RotateCcw size={13} />
+                <span>Current</span>
+              </button>
+            )}
+
+            {/* Quick Selectors for Month and Year */}
+            <div className="flex items-center gap-1.5 sm:ml-1">
+              {(dashboardView === 'day' || dashboardView === 'week') && (
+                <select
+                  value={getMonth(chartReferenceDate)}
+                  onChange={(e) => handleMonthSelect(Number(e.target.value))}
+                  className="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:bg-slate-50 transition-colors"
+                  title="Select month"
+                >
+                  {MONTHS_LIST.map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+              )}
+
+              {dashboardView !== 'year' && (
+                <select
+                  value={getYear(chartReferenceDate)}
+                  onChange={(e) => handleYearSelect(Number(e.target.value))}
+                  className="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:bg-slate-50 transition-colors"
+                  title="Select year"
+                >
+                  {businessYears.map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
-          <div className="h-[300px] flex-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieData} innerRadius={65} outerRadius={85} paddingAngle={4} dataKey="value" stroke="none">
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <RechartsTooltip formatter={(value) => `₹${Number(value).toLocaleString()}`} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 10px rgb(0 0 0 / 0.1)' }} />
-                <Legend verticalAlign="bottom" height={40} iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
-              </PieChart>
-            </ResponsiveContainer>
+
+          {/* Right: Period View Toggles (DAY / WEEK / MONTH / YEAR) */}
+          <div className="flex items-center self-end md:self-auto bg-slate-200/70 p-1 rounded-xl border border-slate-200 gap-1">
+            {(['day', 'week', 'month', 'year'] as const).map(view => (
+              <button
+                key={view}
+                onClick={() => setDashboardView(view)}
+                className={`px-3.5 py-1.5 text-[10px] font-black rounded-lg transition-all cursor-pointer ${dashboardView === view ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                {view.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Combined Charts Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
+          {/* Section 1: Income vs Expenses */}
+          <div className="p-6 lg:col-span-2 flex flex-col justify-between">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
+              <div>
+                <h3 className="font-bold text-slate-800 text-lg">Income vs Expenses</h3>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">{periodSubtitle}</p>
+              </div>
+              <div className="text-xs font-semibold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200">
+                {dashboardView.toUpperCase()} VIEW
+              </div>
+            </div>
+
+            <div className="h-[300px]">
+              {chartDataFetched.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400 font-medium">
+                  No transactions for {periodTitle}
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartDataFetched} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis
+                      dataKey="date"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#64748b', fontSize: dashboardView === 'day' ? 10 : 11 }}
+                      dy={10}
+                      angle={dashboardView === 'day' ? -45 : dashboardView === 'week' ? -20 : 0}
+                      textAnchor={dashboardView === 'day' || dashboardView === 'week' ? 'end' : 'middle'}
+                      height={dashboardView === 'day' ? 50 : dashboardView === 'week' ? 45 : 35}
+                      interval={0}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#64748b', fontSize: 12 }}
+                      tickFormatter={(v) => `₹${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v}`}
+                      dx={-10}
+                    />
+                    <RechartsTooltip
+                      cursor={{ fill: '#f8fafc' }}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const inc = Number(data.income || 0);
+                          const exp = Number(data.expense || 0);
+                          const net = inc - exp;
+                          return (
+                            <div className="bg-white/95 backdrop-blur-md p-3 rounded-xl border border-slate-200 shadow-xl text-xs space-y-1.5 min-w-[190px]">
+                              <p className="font-bold text-slate-800 border-b border-slate-100 pb-1.5 text-xs">
+                                {data.fullDate || data.date}
+                              </p>
+                              <div className="flex justify-between items-center text-emerald-600 font-semibold">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Income:
+                                </span>
+                                <span>₹{inc.toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-rose-500 font-semibold">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span> Expenses:
+                                </span>
+                                <span>₹{exp.toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center font-bold pt-1.5 border-t border-slate-100 text-xs">
+                                <span className="text-slate-600">Net:</span>
+                                <span className={net >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
+                                  {net >= 0 ? '+' : ''}₹{net.toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} verticalAlign="top" />
+                    <Bar dataKey="income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                    <Bar dataKey="expense" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {/* Section 2: Revenue Distribution */}
+          <div className="p-6 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-slate-800 text-lg">Revenue Distribution</h3>
+                <p className="text-xs text-slate-400 font-medium">Synced with {periodTitle}</p>
+              </div>
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+                <span className="text-[10px] font-black text-blue-600 px-2 py-1 bg-white rounded shadow-xs">SYNCED VIEW</span>
+              </div>
+            </div>
+            <div className="h-[300px] flex-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieData} innerRadius={65} outerRadius={85} paddingAngle={4} dataKey="value" stroke="none">
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip formatter={(value) => `₹${Number(value).toLocaleString()}`} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 10px rgb(0 0 0 / 0.1)' }} />
+                  <Legend verticalAlign="bottom" height={40} iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       </div>
@@ -743,10 +1218,6 @@ const filteredProducts = products;
                 Staff ranked by sales revenue and bills handled in selected period
               </p>
             </div>
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 shadow-sm flex items-center gap-1.5">
-              <Trophy size={14} className="text-amber-500" />
-              Top Sales Champions
-            </span>
           </div>
 
           <div className="overflow-x-auto max-h-[420px] custom-scrollbar">
@@ -768,11 +1239,7 @@ const filteredProducts = products;
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {top5Staff.map((s, i) => {
-                  let badge = "";
-                  if (i === 0) badge = "🥇 Rank 1";
-                  else if (i === 1) badge = "🥈 Rank 2";
-                  else if (i === 2) badge = "🥉 Rank 3";
-                  else badge = `#${i + 1}`;
+                  const badge = `#${i + 1}`;
 
                   let badgeClasses = "inline-flex items-center justify-center font-black px-2.5 py-1 rounded-full shadow-sm text-xs whitespace-nowrap border ";
                   if (i === 0) badgeClasses += "bg-amber-100 text-amber-900 border-amber-300";
@@ -1053,113 +1520,32 @@ const filteredProducts = products;
         </div>
       )}
 
-      {/* Staff Performance & Sales Comparison Chart */}
-      <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
-          <div>
-            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-              <TrendingUp size={20} className="text-blue-500" />
-              Staff Sales & Performance Comparison
-            </h3>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Comparative visualization of sales revenue, invoices completed, and commission earned
-            </p>
-          </div>
-          <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-200">
-            Top 8 Contributors
-          </span>
-        </div>
-
-        <div className="h-[360px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={staffChartData} layout="horizontal" margin={{ top: 10, right: 10, left: 10, bottom: 25 }}>
-              <defs>
-                <linearGradient id="colorStaffRev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.9} />
-                  <stop offset="95%" stopColor="#1d4ed8" stopOpacity={0.9} />
-                </linearGradient>
-                <linearGradient id="colorStaffComm" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.9} />
-                  <stop offset="95%" stopColor="#059669" stopOpacity={0.9} />
-                </linearGradient>
-                <linearGradient id="colorStaffInvoices" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.9} />
-                  <stop offset="95%" stopColor="#d97706" stopOpacity={0.9} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 12, fontWeight: 600 }} dy={12} interval={0} angle={-15} textAnchor="end" />
-              <YAxis yAxisId="left" orientation="left" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={(v) => `₹${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
-              <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fill: '#f59e0b', fontSize: 11 }} tickFormatter={(v) => `${v} bills`} />
-              <RechartsTooltip
-                cursor={{ fill: '#f8fafc' }}
-                content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
-                    const data = payload[0].payload;
-                    return (
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xl min-w-[220px]">
-                        <p className="font-bold text-slate-800 mb-2 border-b border-slate-100 pb-2 flex items-center justify-between">
-                          <span className="text-sm">{data.name}</span>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-bold">{data.role}</span>
-                        </p>
-                        <div className="space-y-1.5 text-xs">
-                          <div className="flex justify-between items-center text-slate-600">
-                            <span>Sales Revenue:</span>
-                            <span className="font-black text-blue-600">₹{data.revenue.toLocaleString()}</span>
-                          </div>
-                          <div className="flex justify-between items-center text-slate-600">
-                            <span>Invoices Handled:</span>
-                            <span className="font-black text-amber-600">{data.invoices} bills</span>
-                          </div>
-                          <div className="flex justify-between items-center text-slate-600">
-                            <span>Units Sold:</span>
-                            <span className="font-bold text-slate-800">{data.itemsSold} items</span>
-                          </div>
-                          <div className="flex justify-between items-center text-slate-600 pt-1 border-t border-slate-100">
-                            <span>Commission:</span>
-                            <span className="font-black text-emerald-600">₹{data.commission.toLocaleString()}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-              <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '12px', fontWeight: 600 }} />
-              <Bar yAxisId="left" dataKey="revenue" name="Sales Revenue (₹)" fill="url(#colorStaffRev)" radius={[4, 4, 0, 0]} barSize={18} />
-              <Bar yAxisId="left" dataKey="commission" name="Commission (₹)" fill="url(#colorStaffComm)" radius={[4, 4, 0, 0]} barSize={18} />
-              <Bar yAxisId="right" dataKey="invoices" name="Invoices Handled" fill="url(#colorStaffInvoices)" radius={[4, 4, 0, 0]} barSize={18} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Staff Performance & Sales Ledger Row */}
+      {/* Top Performing Products Section */}
       <div className="pb-6">
-        <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm font-sans">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-sm font-sans">
+          {/* Header */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
             <div>
               <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
-                <UserCheck size={22} className="text-indigo-600" />
-                Staff Sales & Performance Ledger
+                <Package size={22} className="text-blue-600" />
+                Top Performing Products
               </h3>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Comprehensive directory with invoices, revenue contributions, and commissions
+                Products ranked by sales revenue, units sold, and profit contribution
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-              {/* Role filter */}
+              {/* Category filter */}
               <div className="relative">
                 <select
-                  value={selectedStaffRole}
-                  onChange={(e) => setSelectedStaffRole(e.target.value)}
-                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={selectedProductCategory}
+                  onChange={(e) => setSelectedProductCategory(e.target.value)}
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
                 >
-                  <option value="ALL">All Roles ({staffPerformance.length})</option>
-                  {availableStaffRoles.map(role => (
-                    <option key={role} value={role}>{role}</option>
+                  <option value="ALL">All Categories</option>
+                  {availableProductCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
               </div>
@@ -1168,9 +1554,9 @@ const filteredProducts = products;
               <div className="relative flex-1 sm:w-64">
                 <input
                   type="text"
-                  placeholder="Search staff by name, ID, phone..."
-                  value={staffSearch}
-                  onChange={(e) => setStaffSearch(e.target.value)}
+                  placeholder="Search products by name, ID, category..."
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
                   className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none font-medium"
                 />
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1180,138 +1566,136 @@ const filteredProducts = products;
 
           {/* Quick Metrics Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-              <p className="text-[10px] uppercase font-bold text-slate-400">Total Staff</p>
-              <p className="text-lg font-black text-slate-800 mt-0.5">{staffPerformance.length}</p>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+              <p className="text-[10px] uppercase font-bold text-slate-400">Total Products Sold</p>
+              <p className="text-lg font-black text-slate-800 mt-0.5">{totalProductsSold} Units</p>
             </div>
-            <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/60">
-              <p className="text-[10px] uppercase font-bold text-blue-600">Active Sellers</p>
-              <p className="text-lg font-black text-blue-700 mt-0.5">{activeStaffCount}</p>
+            <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100/60">
+              <p className="text-[10px] uppercase font-bold text-blue-600">Active Selling Products</p>
+              <p className="text-lg font-black text-blue-700 mt-0.5">
+                {productPerformance.filter(p => p.unitsSold > 0).length}
+              </p>
             </div>
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-              <p className="text-[10px] uppercase font-bold text-slate-400">Attributed Sales</p>
-              <p className="text-lg font-black text-slate-800 mt-0.5">₹{totalStaffRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+              <p className="text-[10px] uppercase font-bold text-slate-400">Total Product Sales</p>
+              <p className="text-lg font-black text-slate-800 mt-0.5">₹{totalProductSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
             </div>
-            <div className="bg-emerald-50/50 p-3 rounded-lg border border-emerald-100/60">
-              <p className="text-[10px] uppercase font-bold text-emerald-600">Total Commissions</p>
-              <p className="text-lg font-black text-emerald-700 mt-0.5">₹{totalStaffCommissions.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100/60">
+              <p className="text-[10px] uppercase font-bold text-emerald-600">Top Seller Revenue</p>
+              <p className="text-lg font-black text-emerald-700 mt-0.5">
+                ₹{(filteredProductsList[0]?.totalRevenue || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
             </div>
           </div>
 
-          {/* Full Ledger Table */}
-          <div className="max-h-[500px] overflow-auto custom-scrollbar border border-slate-200 rounded-lg">
+          {/* Products Table */}
+          <div className="max-h-[500px] overflow-auto custom-scrollbar border border-slate-200 rounded-xl">
             <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 bg-slate-100 shadow-sm z-10">
+              <thead className="sticky top-0 bg-slate-100/90 backdrop-blur-xs shadow-2xs z-10">
                 <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-200">
                   <th className="p-3.5 text-center">Rank</th>
-                  <th className="p-3.5">Staff Details</th>
-                  <th className="p-3.5">Role</th>
-                  <th className="p-3.5">Contact</th>
-                  <th className="p-3.5 text-center">Invoices</th>
+                  <th className="p-3.5">Product Details</th>
+                  <th className="p-3.5">Category</th>
                   <th className="p-3.5 text-center">Units Sold</th>
+                  <th className="p-3.5 text-center">Orders</th>
+                  <th className="p-3.5 whitespace-nowrap">Price (₹)</th>
                   <th className="p-3.5 whitespace-nowrap">Total Sales (₹)</th>
-                  <th className="p-3.5 whitespace-nowrap">Avg Sale (₹)</th>
-                  <th className="p-3.5 whitespace-nowrap">Commission (₹)</th>
-                  <th className="p-3.5">Status</th>
-                  <th className="p-3.5 text-right">Actions</th>
+                  <th className="p-3.5 whitespace-nowrap">Est. Profit (₹)</th>
+                  <th className="p-3.5 text-center">Stock</th>
+                  <th className="p-3.5 text-center">Sales Share</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredStaffList.map((s, idx) => {
-                  const isTop3 = idx < 3 && s.totalRevenue > 0;
+                {filteredProductsList.map((p, idx) => {
+                  const badge = `#${idx + 1}`;
+
+                  let badgeClasses = "inline-flex items-center justify-center font-black px-2.5 py-0.5 rounded-full text-[10px] border ";
+                  if (idx === 0) badgeClasses += "bg-amber-100 text-amber-900 border-amber-300";
+                  else if (idx === 1) badgeClasses += "bg-slate-200 text-slate-800 border-slate-300";
+                  else if (idx === 2) badgeClasses += "bg-orange-100 text-orange-900 border-orange-300";
+                  else badgeClasses += "bg-slate-50 text-slate-500 border-slate-200";
+
+                  const isTop3 = idx < 3;
+                  const sharePct = totalProductSales > 0 ? (p.totalRevenue / totalProductSales) * 100 : 0;
+
                   return (
                     <tr
-                      key={s.id || idx}
-                      onClick={() => setSelectedStaffDetails(s)}
-                      className={`transition-colors group cursor-pointer ${isTop3 ? 'bg-amber-50/20 hover:bg-amber-50/50' : 'hover:bg-slate-50'}`}
+                      key={p.id || idx}
+                      className={`transition-colors group ${isTop3 ? 'bg-amber-50/20 hover:bg-amber-50/50' : 'hover:bg-slate-50'}`}
                     >
                       <td className="p-3.5 text-center">
-                        <span className={`inline-flex items-center justify-center font-black px-2.5 py-0.5 rounded-full text-[10px] border ${
-                          idx === 0 && s.totalRevenue > 0 ? 'bg-amber-100 text-amber-900 border-amber-300' :
-                          idx === 1 && s.totalRevenue > 0 ? 'bg-slate-200 text-slate-800 border-slate-300' :
-                          idx === 2 && s.totalRevenue > 0 ? 'bg-orange-100 text-orange-900 border-orange-300' :
-                          'bg-slate-50 text-slate-500 border-slate-200'
-                        }`}>
-                          #{idx + 1}
+                        <span className={badgeClasses} title={`Rank ${idx + 1}`}>
+                          {badge}
                         </span>
                       </td>
-                      <td className="p-3.5 min-w-[170px]">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 font-bold flex items-center justify-center text-xs flex-shrink-0 overflow-hidden">
-                            {s.profilePicUrl ? (
-                              <img src={s.profilePicUrl} alt={s.name} className="w-full h-full object-cover" />
-                            ) : (
-                              s.name.slice(0, 2).toUpperCase()
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-sm font-black text-slate-800 group-hover:text-blue-600 transition-colors">
-                              {s.name}
-                            </p>
-                            <p className="text-[10px] font-mono text-slate-400 font-bold">
-                              ID: {s.id}
-                            </p>
-                          </div>
+                      <td className="p-3.5 min-w-[200px]">
+                        <div>
+                          <p className="text-sm font-black text-slate-800 group-hover:text-blue-600 transition-colors">
+                            {p.name}
+                          </p>
+                          <p className="text-[10px] font-mono text-slate-400 font-bold mt-0.5">
+                            ID: {p.id || 'N/A'} {p.barcode ? `• Barcode: ${p.barcode}` : ''}
+                          </p>
                         </div>
                       </td>
                       <td className="p-3.5 text-xs font-bold text-slate-600">
-                        <span className="inline-block px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-[11px]">
-                          {s.role}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-xs font-bold text-slate-500 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1">
-                          <Phone size={12} className="text-slate-400" />
-                          {s.phone}
+                        <span className="inline-block px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-[11px]">
+                          {p.category}
                         </span>
                       </td>
                       <td className="p-3.5 text-center">
-                        <span className="text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-                          {s.invoicesCount}
+                        <span className="text-xs font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100/60 inline-block">
+                          {p.unitsSold}
                         </span>
                       </td>
-                      <td className="p-3.5 text-center text-xs font-bold text-slate-700">
-                        {s.itemsSold}
-                      </td>
-                      <td className="p-3.5 font-black text-slate-900 text-xs whitespace-nowrap">
-                        ₹{s.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      <td className="p-3.5 text-center">
+                        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md inline-block">
+                          {p.invoicesCount}
+                        </span>
                       </td>
                       <td className="p-3.5 text-xs font-bold text-slate-600 whitespace-nowrap">
-                        ₹{s.avgBillValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        ₹{p.sellingPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="p-3.5 font-black text-slate-900 text-sm whitespace-nowrap">
+                        ₹{p.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3.5 text-xs font-bold whitespace-nowrap">
                         <span className="text-emerald-600 font-bold">
-                          ₹{s.totalCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          ₹{p.totalProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </span>
-                        {s.totalCommission > 0 && (
-                          <div className="text-[9px] text-slate-400 font-medium">
-                            Paid: ₹{s.paidCommission.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        {p.profitMargin > 0 && (
+                          <div className="text-[9px] text-emerald-600 font-medium">
+                            {p.profitMargin.toFixed(1)}% margin
                           </div>
                         )}
                       </td>
-                      <td className="p-3.5">
+                      <td className="p-3.5 text-center">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          s.active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                          p.stock <= 0 ? 'bg-rose-100 text-rose-700 border border-rose-200' :
+                          p.stock <= 5 ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                          'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         }`}>
-                          {s.active ? 'Active' : 'Inactive'}
+                          {p.stock <= 0 ? 'Out of Stock' : p.stock <= 5 ? `${p.stock} Low` : `${p.stock} In Stock`}
                         </span>
                       </td>
-                      <td className="p-3.5 text-right" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => setSelectedStaffDetails(s)}
-                          className="px-2.5 py-1 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors inline-flex items-center gap-1"
-                        >
-                          <Eye size={13} />
-                          Details
-                        </button>
+                      <td className="p-3.5 min-w-[120px]">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="bg-blue-600 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.max(0, sharePct))}%` }}
+                            />
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-600">{sharePct.toFixed(1)}%</span>
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
-                {filteredStaffList.length === 0 && (
+                {filteredProductsList.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="p-8 text-center text-slate-400 font-medium">
-                      No staff members match the selected filters
+                    <td colSpan={10} className="p-10 text-center text-slate-400 font-medium">
+                      No products match the selected filters or have recorded sales in this period
                     </td>
                   </tr>
                 )}
@@ -1377,21 +1761,46 @@ const filteredProducts = products;
           </div>
         ))}
 
-        {/* Staff Performance Overview Graph */}
+        {/* Top Performing Products Section */}
         <div style={{ marginBottom: '40px', breakBefore: 'page', paddingTop: '20px' }}>
-          <h2 style={{ fontSize: '22px', fontWeight: 'bold', marginBottom: '20px', borderLeft: '4px solid #6366f1', paddingLeft: '15px', color: '#1e293b' }}>
-            Staff Performance Overview (Revenue & Commission)
+          <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '20px', borderLeft: '4px solid #3b82f6', paddingLeft: '15px', color: '#1e293b' }}>
+            Top Performing Products
           </h2>
-          <div style={{ border: '1px solid #f1f5f9', borderRadius: '12px', padding: '20px', backgroundColor: '#fff' }}>
-            <BarChart width={900} height={350} data={staffChartData.slice(0, 8)} margin={{ top: 10, right: 10, left: 10, bottom: 60 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" interval={0} angle={-20} textAnchor="end" tick={{fontSize: 10, fontWeight: 600}} dy={15} />
-              <YAxis tick={{fontSize: 10}} />
-              <Bar dataKey="revenue" name="Sales Revenue (₹)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="commission" name="Commission (₹)" fill="#10b981" radius={[4, 4, 0, 0]} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{paddingBottom: '20px', fontSize: '12px'}} />
-            </BarChart>
-          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+            <thead style={{ backgroundColor: '#f8fafc', textAlign: 'left', fontSize: '10px', textTransform: 'uppercase' }}>
+              <tr>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Rank</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Product ID</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Product Name</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Category</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', textAlign: 'center' }}>Units Sold</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Unit Price (₹)</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Total Sales (₹)</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0' }}>Est. Profit (₹)</th>
+                <th style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', textAlign: 'center' }}>Stock</th>
+              </tr>
+            </thead>
+            <tbody style={{ fontSize: '10px' }}>
+              {topProductsReport.map((p, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '10px' }}>#{p.rank}</td>
+                  <td style={{ padding: '10px', fontFamily: 'monospace' }}>{p.productId}</td>
+                  <td style={{ padding: '10px', fontWeight: 'bold' }}>{p.name}</td>
+                  <td style={{ padding: '10px' }}>{p.category}</td>
+                  <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>{p.unitsSold}</td>
+                  <td style={{ padding: '10px' }}>{p.sellingPrice}</td>
+                  <td style={{ padding: '10px', fontWeight: 'bold', color: '#1e293b' }}>{p.revenue}</td>
+                  <td style={{ padding: '10px', fontWeight: 'bold', color: '#059669' }}>{p.profit}</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}>{p.stock}</td>
+                </tr>
+              ))}
+              {topProductsReport.length === 0 && (
+                <tr>
+                  <td colSpan={9} style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No product sales recorded for this period</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
 
         {/* Top Performing Staff */}

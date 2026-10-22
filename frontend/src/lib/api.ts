@@ -559,7 +559,7 @@ export interface Product {
   gst?: number; // Frontend override for billing
 }
 
-export const UNIT_OPTIONS = ["kg", "pcs", "Nos", "gms", "mtrs", "ltrs", "packs", "boxes", "bundles", "rolls", "jars", "bottles", "cans", "tins", "bags", "sacks", "drums", "cartons", "pallets", "containers"];
+export { DEFAULT_UNIT_OPTIONS as UNIT_OPTIONS, getAllUnitOptions } from '@/utils/unitManager';
 
 // Helper to map Backend Product to Frontend Product (handling alias)
 const mapProductFromBackend = (p: any): Product => ({

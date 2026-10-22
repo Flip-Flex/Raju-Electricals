@@ -18,6 +18,7 @@ import { SyncIndicator } from '@/components/SyncIndicator';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useAuth } from '@/context/AuthContext';
 import { parseExcelFile } from '@/utils/excelParser'; // Added import
+import { useCustomUnits } from '@/utils/unitManager';
 // Data Structures
 interface Product extends ApiProduct {
   creditTransactionId?: string;
@@ -147,6 +148,7 @@ const Products = () => {
   const isCashier = user?.role?.toLowerCase() === 'cashier';
   const { products: globalProducts, vendors: globalVendors, loading: globalLoading, refreshProducts, refreshVendors, mutateProducts, isSyncing } = useGlobalData();
   const { confirm: confirmAction, ConfirmationDialog } = useConfirm();
+  const { allUnits } = useCustomUnits();
 
   // Data is already loaded by GlobalDataContext on login. No need to refresh on every navigation.
   // Post-action refreshes (add/edit/delete) handle data freshness via refreshProducts() calls.
@@ -1132,7 +1134,7 @@ const Products = () => {
                               onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })}
                               className="border rounded p-1 w-20 text-sm"
                             >
-                                {Array.from(new Set([...UNIT_OPTIONS, ...globalProducts.map(p => p.unit).filter(Boolean)])).sort().map(u => <option key={u} value={u}>{u}</option>)}
+                                {Array.from(new Set([...allUnits, ...globalProducts.map(p => p.unit).filter(Boolean)])).sort().map(u => <option key={u} value={u}>{u}</option>)}
                             </select>
                           </td>
 
@@ -1455,7 +1457,7 @@ const ProductFormModal = ({ product, categories, vendors, onSave, onClose, defau
             <div><label>Supplier Name</label><select ref={supplierRef} name="vendorId" value={formData.vendorId} onChange={handleVendorChange} onKeyDown={(e) => handleEnter(e, purchaseRateRef)} className="form-input mt-1" required><option value="" disabled>-- Select a Supplier --</option>{vendors.map((v) => (<option key={v.id} value={v.id}>{v.name}</option>))}</select></div>
             <div><label>Supplier ID (Auto-filled)</label><input name="vendorId" type="text" value={formData.vendorId} className="form-input mt-1 bg-gray-100" readOnly /></div>
             <div><label>Unit</label><select name="unit" value={formData.unit} onChange={handleChange} className="form-input mt-1" required>
-              {Array.from(new Set([...UNIT_OPTIONS, ...globalProducts.map(p => p.unit).filter(Boolean)])).sort().map(u => <option key={u} value={u}>{u}</option>)}
+              {Array.from(new Set([...allUnits, ...globalProducts.map(p => p.unit).filter(Boolean)])).sort().map(u => <option key={u} value={u}>{u}</option>)}
             </select></div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

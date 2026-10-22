@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { Layers, X, CreditCard, Trash2, PlusCircle, Printer, Save, Upload, Edit2, Check, Clock } from 'lucide-react';
 import { CreditTransaction, Vendor, vendorApi, UNIT_OPTIONS } from '@/lib/api';
+import { useCustomUnits } from '@/utils/unitManager';
 import JsBarcode from 'jsbarcode';
 import SupplierCreditPanel from './SupplierCreditPanel';
 import PurchaseHistoryModal from './PurchaseHistoryModal';
@@ -84,16 +85,28 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
     // Searchable Unit State
     const [isUnitDropdownOpen, setIsUnitDropdownOpen] = useState(false);
     const [highlightedUnitIndex, setHighlightedUnitIndex] = useState(-1);
+    const { allUnits: customAndDefaultUnits } = useCustomUnits();
     const unitSuggestions = React.useMemo(() => {
         const existing = products.map(p => p.unit).filter(Boolean);
         const inCart = addedProducts.map(p => p.unit).filter(Boolean);
-        return Array.from(new Set([...UNIT_OPTIONS, ...existing, ...inCart]));
-    }, [products, addedProducts]);
+        return Array.from(new Set([...customAndDefaultUnits, ...existing, ...inCart]));
+    }, [customAndDefaultUnits, products, addedProducts]);
     
     // Searchable Product State
     const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
     const [highlightedProductIndex, setHighlightedProductIndex] = useState(-1);
     const productDropdownRef = useRef<HTMLDivElement>(null);
+    const unitDropdownRef = useRef<HTMLDivElement>(null);
+    const unitItemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+    useEffect(() => {
+        if (isUnitDropdownOpen && highlightedUnitIndex >= 0) {
+            const el = unitItemRefs.current.get(highlightedUnitIndex);
+            if (el) {
+                el.scrollIntoView({ block: 'nearest' });
+            }
+        }
+    }, [highlightedUnitIndex, isUnitDropdownOpen]);
 
     const [isCreditPanelOpen, setIsCreditPanelOpen] = useState(true);
     const [addToCredit, setAddToCredit] = useState(true);
@@ -293,9 +306,9 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
             case "unit": hsnInputRef.current?.focus(); break;
             case "hsn": purchaseInputRef.current?.focus(); break;
             case "buy": gstInputRef.current?.focus(); break;
-            case "gst": profitInputRef.current?.focus(); break;
-            case "profit": priceInputRef.current?.focus(); break;
-            case "selling": qtyInputRef.current?.focus(); break;
+            case "gst": priceInputRef.current?.focus(); break;
+            case "selling": profitInputRef.current?.focus(); break;
+            case "profit": qtyInputRef.current?.focus(); break;
             case "qty": handleAddProduct(); break;
         }
     };
@@ -1212,13 +1225,13 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                                     className="form-input w-full text-sm border-gray-300 placeholder-gray-400"
                                                 />
                                                 {isCategoryDropdownOpen && (
-                                                    <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 z-50 max-h-48 overflow-y-auto">
+                                                    <div className="absolute bottom-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-2xl mb-1.5 z-50 max-h-48 overflow-y-auto p-1 divide-y divide-gray-50">
                                                         {categories.filter(c => c.toLowerCase().includes(categorySearchQuery.toLowerCase())).map((c, idx) => (
                                                             <div
                                                                 key={c}
                                                                 onMouseEnter={() => setHighlightedCategoryIndex(idx)}
-                                                                onClick={() => { handleSelectCategory(c); unitInputRef.current?.focus(); }}
-                                                                className={`px-3 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-50 last:border-0 text-sm ${highlightedCategoryIndex === idx ? 'bg-blue-100' : ''}`}
+                                                                onMouseDown={(e) => { e.preventDefault(); handleSelectCategory(c); unitInputRef.current?.focus(); }}
+                                                                className={`px-3 py-1.5 hover:bg-blue-50 cursor-pointer rounded-lg text-sm transition-colors ${highlightedCategoryIndex === idx ? 'bg-blue-600 text-white font-semibold' : 'text-gray-700'}`}
                                                             >
                                                                 {c}
                                                             </div>
@@ -1272,15 +1285,21 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                                     className="form-input w-full text-sm border-gray-300 placeholder-gray-400 h-[38px]"
                                                 />
                                                 {isUnitDropdownOpen && (
-                                                    <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 z-50 max-h-48 overflow-y-auto">
+                                                    <div ref={unitDropdownRef} className="absolute bottom-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-2xl mb-1.5 z-50 max-h-56 overflow-y-auto p-1 divide-y divide-gray-50">
                                                         {unitSuggestions
                                                             .filter(u => u.toLowerCase().startsWith(currentInput.unit.toLowerCase()))
                                                             .map((u, idx) => (
                                                                 <div
                                                                     key={u}
+                                                                    ref={el => { if (el) unitItemRefs.current.set(idx, el); else unitItemRefs.current.delete(idx); }}
                                                                     onMouseEnter={() => setHighlightedUnitIndex(idx)}
-                                                                    onClick={() => handleSelectUnit(u)}
-                                                                    className={`px-3 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-50 last:border-0 text-sm ${highlightedUnitIndex === idx ? 'bg-blue-100' : ''}`}
+                                                                    onMouseDown={(e) => {
+                                                                        e.preventDefault();
+                                                                        handleSelectUnit(u);
+                                                                    }}
+                                                                    className={`px-3 py-2 rounded-lg cursor-pointer text-sm font-medium transition-colors ${
+                                                                        highlightedUnitIndex === idx ? 'bg-blue-600 text-white font-semibold' : 'text-gray-700 hover:bg-blue-50'
+                                                                    }`}
                                                                 >
                                                                     {u}
                                                                 </div>
@@ -1343,22 +1362,6 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                             <input
                                                 type="number"
                                                 inputMode="decimal"
-                                                placeholder="Profit %"
-                                                ref={profitInputRef}
-                                                value={profitPercent}
-                                                onChange={e => handleProfitChange(e.target.value)}
-                                                onFocus={(e) => (e.target as HTMLInputElement).select()}
-                                                onKeyDown={e => {
-                                                    if (e.key === 'Enter') { e.preventDefault(); focusNext('profit'); }
-                                                }}
-                                                className="form-input w-full text-sm text-center text-green-700 border-gray-300 placeholder-gray-400"
-                                            />
-                                        </div>
-
-                                        <div className="flex flex-col">
-                                            <input
-                                                type="number"
-                                                inputMode="decimal"
                                                 placeholder="Selling Price"
                                                 ref={priceInputRef}
                                                 value={isSellingManual ? (currentInput.price || '') : (calculatedSellingPrice || '')}
@@ -1369,6 +1372,22 @@ const MultiProductFormModal = ({ vendors, categories, products, onSave, onClose,
                                                     if (e.key === 'Enter') { e.preventDefault(); focusNext('selling'); }
                                                 }}
                                                 className="form-input w-full text-sm text-right bg-green-50/50 text-green-800 font-bold border-green-200 placeholder-green-300"
+                                            />
+                                        </div>
+
+                                        <div className="flex flex-col">
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                placeholder="Profit %"
+                                                ref={profitInputRef}
+                                                value={profitPercent}
+                                                onChange={e => handleProfitChange(e.target.value)}
+                                                onFocus={(e) => (e.target as HTMLInputElement).select()}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter') { e.preventDefault(); focusNext('profit'); }
+                                                }}
+                                                className="form-input w-full text-sm text-center text-green-700 border-gray-300 placeholder-gray-400"
                                             />
                                         </div>
 

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { Save, Trash2, Loader2, MapPin, Navigation } from 'lucide-react';
+import { Save, Trash2, Loader2, MapPin, Navigation, Boxes, Plus, X, Tag } from 'lucide-react';
 import { confirmAction } from '@/lib/confirm';
 import { clearAllCaches } from '@/lib/clearCache';
 import { staffApi, AppSettings } from '@/lib/api';
+import { useCustomUnits } from '@/utils/unitManager';
 
 const OFFICE_STORAGE_KEY = 'raju_office_location_v1';
 
@@ -27,6 +28,26 @@ const Settings = () => {
   const [billMessage, setBillMessage] = useLocalStorage('billMessage', 'Thank You For Your Purchasing');
   const [defaultGst, setDefaultGst] = useLocalStorage('defaultGst', '');
   const [clearing, setClearing] = useState(false);
+
+  // Custom Units State
+  const { customUnits, defaultUnits, allUnits, addUnit, removeUnit } = useCustomUnits();
+  const [newUnitInput, setNewUnitInput] = useState('');
+  const [showDefaultUnits, setShowDefaultUnits] = useState(false);
+
+  const handleAddCustomUnit = () => {
+    const res = addUnit(newUnitInput);
+    if (res.success) {
+      toast.success(res.message);
+      setNewUnitInput('');
+    } else {
+      toast.error(res.message);
+    }
+  };
+
+  const handleRemoveCustomUnit = (unit: string) => {
+    removeUnit(unit);
+    toast.success(`Removed custom unit "${unit}".`);
+  };
 
   // App Location State (Loaded immediately from memory/storage cache so it never flashes empty)
   const cachedLoc = getCachedOfficeLocation();
@@ -242,6 +263,100 @@ const Settings = () => {
               <Save size={18} /> Save Settings
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Product Measurement Units Settings */}
+      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <Boxes className="text-blue-600" size={22} />
+            <h2 className="text-lg font-bold text-gray-800">Product Measurement Units</h2>
+          </div>
+          <span className="text-xs bg-blue-50 text-blue-700 font-bold px-3 py-1 rounded-full border border-blue-200">
+            {allUnits.length} Total Units ({customUnits.length} Custom)
+          </span>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          Add custom units (e.g., coils, pairs, sets, ft, yards). Custom units will automatically appear in the unit dropdown when creating or adding multiple products.
+        </p>
+
+        {/* Add Custom Unit Form */}
+        <div className="flex flex-wrap items-center gap-2 mb-6 max-w-md">
+          <input
+            type="text"
+            placeholder="Enter custom unit name..."
+            value={newUnitInput}
+            onChange={(e) => setNewUnitInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddCustomUnit();
+              }
+            }}
+            className="form-input flex-1 text-sm rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+          />
+          <button
+            type="button"
+            onClick={handleAddCustomUnit}
+            className="px-4 py-2 bg-blue-600 text-white font-semibold text-sm rounded-lg hover:bg-blue-700 transition flex items-center gap-1.5 shadow-sm"
+          >
+            <Plus size={16} /> Add Unit
+          </button>
+        </div>
+
+        {/* Custom Units List */}
+        <div className="mb-5">
+          <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+            <Tag size={14} className="text-blue-500" /> Custom Units ({customUnits.length})
+          </h3>
+          {customUnits.length === 0 ? (
+            <div className="p-3.5 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-xs text-gray-400">
+              No custom units added yet. Standard system units are active.
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {customUnits.map((u) => (
+                <span
+                  key={u}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold shadow-xs transition-all hover:bg-blue-100"
+                >
+                  {u}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveCustomUnit(u)}
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-blue-600 hover:text-white hover:bg-red-500 transition-colors"
+                    title={`Delete ${u}`}
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Standard Units Collapsible */}
+        <div className="pt-2 border-t border-gray-100">
+          <button
+            type="button"
+            onClick={() => setShowDefaultUnits(!showDefaultUnits)}
+            className="text-xs font-bold text-blue-600 hover:text-blue-800 transition flex items-center gap-1"
+          >
+            {showDefaultUnits ? '▲ Hide standard units' : '▼ View standard units (20 default)'}
+          </button>
+          {showDefaultUnits && (
+            <div className="mt-2.5 flex flex-wrap gap-1.5 p-3.5 bg-gray-50/80 rounded-lg border border-gray-200">
+              {defaultUnits.map((u) => (
+                <span
+                  key={u}
+                  className="px-2.5 py-1 rounded-md bg-white border border-gray-200 text-gray-700 text-xs font-medium shadow-2xs"
+                >
+                  {u}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
