@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.rajuelec.staffattendance',
-  appName: 'Staff Attendance',
+  appName: 'Raju Electricals Attendance',
   webDir: '../dist/staff',
   server: {
     cleartext: true

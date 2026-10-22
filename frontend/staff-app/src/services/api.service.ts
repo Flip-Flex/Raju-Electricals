@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.2:8084';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://staff-service-492955680725.asia-southeast1.run.app';
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api/staff`,

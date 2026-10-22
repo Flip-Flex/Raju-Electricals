@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import logo from '@/assets/Sk-logo.png';
+import logo from '@/assets/re-logo.png';
 
 const LoginPage = () => {
   const { login } = useAuth();
@@ -20,7 +20,15 @@ const LoginPage = () => {
     try {
       await login(username.trim(), password);
     } catch (err: any) {
-      setError(`DEBUG ERROR: ${err.message || 'unknown'} - Name: ${err.name || 'unknown'}. Code: ${err.code || 'unknown'}`);
+      console.error('Login error:', err);
+      const serverMsg = err?.response?.data?.message;
+      if (serverMsg) {
+        setError(serverMsg);
+      } else if (err?.code === 'ERR_NETWORK' || err?.message?.includes('Network Error')) {
+        setError('Network Error: Unable to reach server. Please check your internet connection.');
+      } else {
+        setError(err?.message || 'Login failed. Please check your credentials.');
+      }
     } finally {
       setLoading(false);
     }
@@ -34,19 +42,21 @@ const LoginPage = () => {
           style={{
             width: 96,
             height: 96,
-            borderRadius: 20,
-            background: '#fff',
-            border: '1px solid var(--border)',
+            borderRadius: 22,
+            background: '#000',
+            border: '1px solid rgba(0, 0, 0, 0.1)',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             margin: '0 auto 20px',
+            overflow: 'hidden',
           }}
         >
-          <img src={logo} alt="App logo" style={{ width: 72, height: 72, objectFit: 'contain' }} />
+          <img src={logo} alt="Raju Electricals" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
 
-        <h1 className="t-page-title" style={{ fontSize: 24 }}>Staff Attendance</h1>
+        <h1 className="t-page-title" style={{ fontSize: 24 }}>Raju Electricals Attendance</h1>
         <p className="t-muted" style={{ marginTop: 6, fontSize: 14 }}>
           Track your attendance securely and effortlessly.
         </p>

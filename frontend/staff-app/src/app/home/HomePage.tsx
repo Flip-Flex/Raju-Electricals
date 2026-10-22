@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { App } from '@capacitor/app';
 import { useAuth } from '@/context/AuthContext';
 import { attendanceService } from '@/services/attendance.service';
 import { locationService, GeoPosition } from '@/services/location.service';
@@ -19,6 +20,7 @@ interface TodayStatus {
 }
 
 interface OfficeLocation {
+  locationName?: string;
   latitude: number;
   longitude: number;
   radiusMeters: number;
@@ -76,9 +78,10 @@ const HomePage = () => {
           const lat = Number(settingsRes.data.latitude) || 0;
           const lng = Number(settingsRes.data.longitude) || 0;
           const rad = Number(settingsRes.data.radiusMeters) || 50;
+          const name = settingsRes.data.locationName || 'Main Office';
 
           if (lat !== 0 || lng !== 0) {
-            const newOffice = { latitude: lat, longitude: lng, radiusMeters: rad };
+            const newOffice = { locationName: name, latitude: lat, longitude: lng, radiusMeters: rad };
             setOffice(newOffice);
             setGeofenceEnabled(true);
             try {
@@ -126,47 +129,101 @@ const HomePage = () => {
     setLocState('checking');
     setLocMsg('Verifying your location…');
 
-    if (!geofenceEnabled) {
+    // Always fetch latest office settings directly from server so website updates reflect immediately
+    let targetOffice = office;
+    try {
+      const settingsRes = await api.get('/settings');
+      if (settingsRes?.data) {
+        const lat = Number(settingsRes.data.latitude) || 0;
+        const lng = Number(settingsRes.data.longitude) || 0;
+        const rad = Number(settingsRes.data.radiusMeters) || 50;
+        const name = settingsRes.data.locationName || 'Main Office';
+        if (lat !== 0 || lng !== 0) {
+          targetOffice = { locationName: name, latitude: lat, longitude: lng, radiusMeters: rad };
+          setOffice(targetOffice);
+          setGeofenceEnabled(true);
+          try {
+            localStorage.setItem(STAFF_OFFICE_KEY, JSON.stringify(targetOffice));
+          } catch {}
+        }
+      }
+    } catch (e) {
+      console.warn('Could not refresh office settings from server, using cached', e);
+    }
+
+    if (!targetOffice || (targetOffice.latitude === 0 && targetOffice.longitude === 0)) {
       // Office point not configured: can't enforce a geofence. Still try to read a position.
       const res = await locationService.ensureLocation();
       if (res.status === 'granted' && res.position) setPosition(res.position);
       setLocState('info');
-      setLocMsg('Office location not set — marking without geofence.');
+      setLocMsg('Office location not configured on server — marking without geofence.');
       return;
     }
 
     const res = await locationService.ensureLocation();
-    if (res.status === 'granted' && res.position && office) {
+    if (res.status === 'granted' && res.position) {
       setPosition(res.position);
       const { getDistanceMeters } = await import('@/utils/geofence');
-      const dist = Math.round(getDistanceMeters(res.position.latitude, res.position.longitude, office.latitude, office.longitude));
+      const dist = Math.round(
+        getDistanceMeters(
+          res.position.latitude,
+          res.position.longitude,
+          targetOffice.latitude,
+          targetOffice.longitude
+        )
+      );
       setDistance(dist);
-      if (dist <= office.radiusMeters || window.location.hostname === 'localhost') {
+
+      if (dist <= targetOffice.radiusMeters) {
         setLocState('ok');
-        setLocMsg(window.location.hostname === 'localhost' ? 'Local testing: Geofence bypassed' : 'Within office premises');
+        setLocMsg(`Within office premises (${dist}m away, limit: ${targetOffice.radiusMeters}m)`);
       } else {
         setLocState('far');
-        setLocMsg(`You're ${dist}m from the office (limit ${office.radiusMeters}m).`);
+        setLocMsg(`You are ${dist}m away from ${targetOffice.locationName || 'office'} (limit: ${targetOffice.radiusMeters}m).`);
       }
     } else if (res.status === 'prompt') {
       setLocState('prompt');
       setLocMsg('Location permission is required to mark attendance.');
     } else if (res.status === 'denied') {
       setLocState('denied');
-      setLocMsg('Location permission denied. Allow access to mark attendance.');
+      setLocMsg('Location permission denied. Please allow access.');
     } else if (res.status === 'off') {
       setLocState('off');
-      setLocMsg('Device location is turned off. Turn it on to mark attendance.');
+      setLocMsg('Device location (GPS) is turned off. Please turn it on.');
     } else {
       setLocState('denied');
-      setLocMsg('Could not access your location. Please try again.');
+      setLocMsg('Could not detect location. Please check GPS and try again.');
     }
-  }, [office, geofenceEnabled]);
+  }, [office]);
+
+  const handleTurnOnLocation = async () => {
+    setLocMsg('Opening location settings…');
+    await locationService.promptEnableLocation();
+    setTimeout(() => {
+      refreshLocation();
+    }, 1500);
+  };
+
+  const handleAllowPermission = async () => {
+    const req = await locationService.requestPermission();
+    if (req.location === 'denied' && req.coarseLocation === 'denied') {
+      await locationService.openAppSettings();
+    } else {
+      refreshLocation();
+    }
+  };
 
   useEffect(() => {
     refreshLocation();
-     
-  }, [office, geofenceEnabled]);
+    const subPromise = App.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        refreshLocation();
+      }
+    });
+    return () => {
+      subPromise.then((s) => s.remove()).catch(() => {});
+    };
+  }, [refreshLocation]);
 
   const withinRange = geofenceEnabled ? locState === 'ok' : locState === 'info';
 
@@ -259,7 +316,14 @@ const HomePage = () => {
               name={locState === 'ok' ? 'location' : locState === 'far' || locState === 'denied' || locState === 'off' ? 'location-outline' : 'locate-outline'}
               style={{ fontSize: 18 }}
             />
-            <span>{locMsg}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+              <span>{locMsg}</span>
+              {office && (office.latitude !== 0 || office.longitude !== 0) && (
+                <span style={{ fontSize: 11, opacity: 0.85, color: 'inherit' }}>
+                  Target: {office.locationName || 'Main Office'} ({office.latitude.toFixed(4)}, {office.longitude.toFixed(4)}) • Limit: {office.radiusMeters}m
+                </span>
+              )}
+            </div>
           </div>
 
           {failMsg && (
@@ -269,10 +333,15 @@ const HomePage = () => {
             </div>
           )}
 
-          {(locState === 'prompt' || locState === 'denied' || locState === 'off') ? (
-            <button className="btn btn-ghost" style={{ marginTop: 16 }} onClick={refreshLocation}>
-              <ion-icon name="location-outline" style={{ fontSize: 18 }} />
-              Enable Location
+          {locState === 'off' ? (
+            <button className="btn btn-ghost" style={{ marginTop: 16 }} onClick={handleTurnOnLocation}>
+              <ion-icon name="navigate-outline" style={{ fontSize: 18 }} />
+              Turn On GPS / Location
+            </button>
+          ) : (locState === 'prompt' || locState === 'denied') ? (
+            <button className="btn btn-ghost" style={{ marginTop: 16 }} onClick={handleAllowPermission}>
+              <ion-icon name="shield-checkmark-outline" style={{ fontSize: 18 }} />
+              Allow Location Permission
             </button>
           ) : (
             <button
@@ -283,6 +352,13 @@ const HomePage = () => {
             >
               {phase === 'loading' && <span className="spinner" />}
               {phase === 'loading' ? 'Checking in…' : phase === 'done' ? <><ion-icon name="checkmark" className="pop" style={{ fontSize: 18 }} /> Checked In</> : <><ion-icon name="checkmark-circle-outline" style={{ fontSize: 18 }} /> Tap to Check In</>}
+            </button>
+          )}
+
+          {locState === 'far' && (
+            <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={refreshLocation}>
+              <ion-icon name="refresh-outline" style={{ fontSize: 18 }} />
+              Re-check Location
             </button>
           )}
         </>

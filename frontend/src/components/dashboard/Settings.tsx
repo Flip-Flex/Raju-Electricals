@@ -6,6 +6,7 @@ import { confirmAction } from '@/lib/confirm';
 import { clearAllCaches } from '@/lib/clearCache';
 import { staffApi, AppSettings } from '@/lib/api';
 import { useCustomUnits } from '@/utils/unitManager';
+import AttendanceAppDownloadCard from './AttendanceAppDownloadCard';
 
 const OFFICE_STORAGE_KEY = 'raju_office_location_v1';
 
@@ -470,6 +471,9 @@ const Settings = () => {
           </div>
         )}
       </div>
+
+      {/* Attendance Mobile App APK Distribution */}
+      <AttendanceAppDownloadCard />
 
       {/* Danger Zone - Clear All Cached Data */}
       <div className="bg-white p-6 rounded-lg shadow-sm border border-red-200">

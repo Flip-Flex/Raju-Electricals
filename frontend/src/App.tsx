@@ -27,6 +27,7 @@ import PrintedBills from '@/components/dashboard/PrintedBills';
 import CashierReports from '@/components/dashboard/CashierReports';
 import Brokers from '@/components/dashboard/Brokers';
 import TasksAndTargets from '@/components/dashboard/TasksAndTargets';
+import CashierSettings from '@/pages/dashboard/CashierSettings';
 
 import { AuthProvider } from "@/context/AuthContext";
 import { GlobalDataProvider } from "@/context/GlobalDataContext";
@@ -82,6 +83,7 @@ const App = () => {
                 <Route path="daily-actions" element={<DailyActions />} />
                 <Route path="printed-bills" element={<PrintedBills />} />
                 <Route path="sales-report" element={<CashierReports />} />
+                <Route path="settings" element={<CashierSettings />} />
               </Route>
             </Route>
 

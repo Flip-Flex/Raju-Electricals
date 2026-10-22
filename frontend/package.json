@@ -8,7 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "release:apk": "node scripts/release_attendance_apk.cjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
